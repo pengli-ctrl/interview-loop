@@ -11,7 +11,12 @@ import streamlit as st
 st.set_page_config(page_title="全真大厂面试模拟器", layout="wide")
 
 from interview_loop.core.flow import FlowAction, decide_next_step
-from interview_loop.core.question_engine import questions_too_similar
+from interview_loop.core.question_engine import (
+    build_repair_prompt,
+    build_similarity_fallback,
+    build_stage_question_prompt,
+    questions_too_similar,
+)
 from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
 from interview_loop.services.asr import audio2text
 from interview_loop.services.llm import llm_call
@@ -175,44 +180,24 @@ def get_stage_question(
     previous_question: str = "",
     last_answer: str = "",
 ) -> str:
-    cfg = MODE_CONFIG[mode]
-    stage = cfg["stage_list"][stage_idx]
-    question_plan = stage.get("question_plan") or stage.get("pool") or [stage["desc"]]
-    main_total = max(1, len(question_plan))
-    main_index = min(max(0, main_index), main_total - 1)
-    max_followups = max(0, int(stage.get("max_followups", 0)))
-    current_topic = question_plan[main_index]
-    weak_tags = [
-        key for key, _ in sorted(weak_stats.items(), key=lambda item: item[1], reverse=True)
-    ]
-    question_type = "追问" if is_followup else "主问题"
-    system_prompt = f"""你是【{mode}】面试官，风格：{st.session_state.style}。
-当前面试阶段：{stage['name']}，考察方向：{stage['desc']}
-本阶段主问题计划：{question_plan}
-当前主问题：第 {main_index + 1}/{main_total} 个：{current_topic}
-本题类型：{question_type}
-追问进度：{followup_index}/{max_followups}
-规则：
-1. 主问题必须覆盖当前主问题目标，不要提前跳到后续主问题；
-2. 如果是追问，必须基于候选人的上一轮回答继续深挖，不能重复上一题；
-3. 薄弱标签参考：{weak_tags}
-4. 简历上下文：{resume_ctx}
-5. 输出只输出题目，不要多余解释；
-6. 问题和追问必须严格停留在当前阶段【{stage['name']}】（{stage['desc']}），不得提前进入后续面试阶段；
-7. 当前阶段是自我介绍时，只能围绕个人经历、职责范围、技术方向和职业动机，不得追问具体项目架构、技术方案、线上故障或系统设计细节。
-上一题：{previous_question or "无"}
-候选人回答：{last_answer or "无"}"""
-    question = llm_call(system_prompt, "请给出当前这一题")
+    stage = MODE_CONFIG[mode]["stage_list"][stage_idx]
+    prompt = build_stage_question_prompt(
+        mode=mode,
+        style=st.session_state.style,
+        stage=stage,
+        resume_ctx=resume_ctx,
+        weak_stats=weak_stats,
+        main_index=main_index,
+        followup_index=followup_index,
+        is_followup=is_followup,
+        previous_question=previous_question,
+        last_answer=last_answer,
+    )
+    question = llm_call(prompt.system_prompt, "请给出当前这一题")
     if previous_question and last_answer and questions_too_similar(question, previous_question):
-        repair_prompt = system_prompt + """
-你上一次生成的问题与上一题过于相似。请重新生成一个不同的题目；如果是追问，必须针对候选人回答中的具体内容。"""
-        question = llm_call(repair_prompt, "请重新给出一个不同的问题")
+        question = llm_call(build_repair_prompt(prompt.system_prompt), "请重新给出一个不同的问题")
     if previous_question and last_answer and questions_too_similar(question, previous_question):
-        answer_excerpt = last_answer.strip().replace("\n", " ")[:60]
-        question = (
-            f"你刚才提到“{answer_excerpt}”，请继续围绕当前主问题“{current_topic}”"
-            f"说明具体经历、思路和结果，不要提前进入后续阶段。"
-        )
+        question = build_similarity_fallback(prompt.current_topic, last_answer)
     return question
 
 

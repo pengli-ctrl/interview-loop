@@ -150,6 +150,7 @@ http://localhost:8501
 - [ADR-005: Tenant isolation and tool permissions](docs/adr/0005-tenancy-pii-and-tool-permissions.md)
 - [ADR-006: Trace, evaluation and regression](docs/adr/0006-trace-evaluation-and-regression.md)
 - [ADR-007: FastAPI vertical slice](docs/adr/0007-fastapi-vertical-slice.md)
+- [ADR-008: SQLite-first persistence](docs/adr/0008-sqlite-first-persistence.md)
 
 ## 当前局限
 
@@ -220,7 +221,7 @@ uvicorn interview_loop.api.main:app --reload
 
 OpenAPI 文档：`http://localhost:8000/docs`。
 
-当前 Repository 为进程内实现，适合架构演示和本地开发；公测需要替换为 PostgreSQL。
+当前默认使用 SQLite 持久化 AgentRun 与事件，适合本地开发和 CI；公测阶段应替换为 PostgreSQL，并补充租户权限、迁移和并发控制。
 
 ## Docker 运行
 

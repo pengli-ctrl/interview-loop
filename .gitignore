@@ -27,3 +27,5 @@ weak_stats_mode.json
 .idea/
 .DS_Store
 Thumbs.db.edge-shot-temp/
+interview_loop.db
+data/

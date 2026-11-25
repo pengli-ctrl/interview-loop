@@ -29,3 +29,6 @@ weak_stats_mode.json
 Thumbs.db.edge-shot-temp/
 interview_loop.db
 data/
+
+# Demo capture runtime
+demo/.capture/

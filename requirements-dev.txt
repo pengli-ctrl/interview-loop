@@ -3,3 +3,5 @@ pytest==9.1.1
 ruff>=0.9,<1.0
 httpx==0.28.1
 fastapi==0.141.1
+Pillow==12.3.0
+playwright==1.65.2

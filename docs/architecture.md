@@ -30,18 +30,45 @@
                 └──────────────────────────────────┘
 ```
 
-## 当前代码边界
+## 当前模块结构
 
-当前为单文件 MVP，主要逻辑包括：
+```text
+app.py
+interview_loop/
+  config.py
+  core/
+    flow.py
+    question_engine.py
+    review.py
+  services/
+    common.py
+    llm.py
+    asr.py
+    tts.py
+    speech_common.py
+  rag/
+    resume.py
+    retriever.py
+    text.py
+  storage/
+    common.py
+    session_store.py
+    stats_store.py
+  export/
+    markdown.py
+```
 
-- 面试配置和阶段计划。
-- 状态机与追问决策。
-- 简历解析和检索。
-- LLM、ASR、TTS 调用。
-- Streamlit 页面。
-- 本地存储和 Markdown 导出。
+模块边界原则：
 
-## 目标模块边界
+1. `core` 负责可测试的纯业务逻辑。
+2. `services` 负责第三方 API 适配。
+3. `rag` 负责简历解析和检索。
+4. `storage` 负责会话和统计持久化。
+5. `export` 负责 Markdown 生成。
+6. `app.py` 负责 Streamlit UI 和 session state 编排。
+7. 纯逻辑模块不依赖真实网络调用，便于 pytest 和 CI。
+
+## 后续演进方向
 
 ```text
 app.py

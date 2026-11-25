@@ -2,7 +2,7 @@
 
 面向技术岗位的多轮自适应 AI 面试训练平台。它将简历、面试轮次、阶段状态机、动态追问、语音/文字作答、结构化复盘和完整记录导出连接成一个可重复训练、可回顾的闭环。
 
-> 当前状态：MVP。核心面试流程已经可运行，工程结构正在进行模块化重构。
+> 当前状态：MVP。核心面试流程、模块化结构、pytest 测试、GitHub Actions 和 Docker 运行方式已经具备；演示素材和 Mock Demo 模式待补。
 
 ## 项目解决什么问题
 
@@ -149,10 +149,11 @@ http://localhost:8501
 
 ## Roadmap
 
-- [ ] 拆分 `core`、`services`、`rag`、`storage`、`export` 和 `ui` 模块。
-- [ ] 增加 pytest 纯逻辑测试和 GitHub Actions。
-- [ ] 增加 Dockerfile、环境变量模板和 Mock Demo 模式。
-- [ ] 增加架构图、截图和 30 秒演示 GIF。
+- [x] 拆分 `core`、`services`、`rag`、`storage` 和 `export` 模块。
+- [x] 增加 pytest 纯逻辑测试和 GitHub Actions。
+- [x] 增加 Dockerfile 和环境变量模板。
+- [ ] 增加 Mock Demo 模式。
+- [ ] 增加截图和 30 秒演示 GIF。
 - [ ] 建立标准评分 Rubric 和评估基准集。
 - [ ] 增加账号、数据库、对象存储和用户数据隔离。
 - [ ] 增加公测所需的配额、限流、监控和隐私合规能力。
@@ -160,6 +161,16 @@ http://localhost:8501
 ## 免责声明
 
 本项目用于技术面试训练和模拟，不构成真实招聘决策、职业建议或录用承诺。请勿提交真实简历、录音或面试记录到公开仓库。
+
+## 测试
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+pytest -q
+```
+
+当前测试覆盖状态机、追问判定、问题相似度、复盘标签、Markdown 导出、会话存储、弱项统计和简历编码解析。
 
 ## Docker 运行
 

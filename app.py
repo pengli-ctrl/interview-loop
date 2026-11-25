@@ -1,4 +1,3 @@
-import base64
 import hashlib
 import io
 import json
@@ -8,7 +7,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import pandas as pd
-import requests
 import streamlit as st
 
 
@@ -18,8 +16,9 @@ st.set_page_config(page_title="全真大厂面试模拟器", layout="wide")
 from interview_loop.core.flow import FlowAction, decide_next_step
 from interview_loop.core.question_engine import questions_too_similar
 from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
-from interview_loop.services.common import parse_api_response, require_config
+from interview_loop.services.asr import audio2text
 from interview_loop.services.llm import llm_call
+from interview_loop.services.tts import text2audio
 from interview_loop.config import (
     GLOBAL_STATS_PATH,
     MAX_RESUME_BYTES,
@@ -28,12 +27,6 @@ from interview_loop.config import (
     RECORD_DIR,
     SAVE_DIR,
     STYLE_LIST,
-    VOICE_TYPE,
-    VOLC_APPID,
-    VOLC_API_KEY,
-    VOLC_ASR_RESOURCE_ID,
-    VOLC_TOKEN,
-    VOLC_TTS_RESOURCE_ID,
 )
 
 
@@ -403,151 +396,6 @@ def rag_query(query: str) -> str:
 
 
 # ===================== 模型与语音服务 =====================
-def volc_auth_headers(service: str) -> dict[str, str]:
-    """同时兼容新版 API Key 单头和 AppID + AccessToken 双头。"""
-    if VOLC_API_KEY:
-        return {"X-Api-Key": VOLC_API_KEY}
-
-    require_config(VOLC_APPID, VOLC_TOKEN)
-    common = {"X-Api-Access-Key": VOLC_TOKEN}
-    if service == "tts":
-        return {**common, "X-Api-App-Id": VOLC_APPID}
-    return {**common, "X-Api-App-Key": VOLC_APPID}
-
-
-def audio2text(audio_bytes: bytes) -> str:
-    if not audio_bytes:
-        raise ValueError("录音内容为空")
-
-    url = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash"
-    headers = {
-        **volc_auth_headers("asr"),
-        "X-Api-Resource-Id": VOLC_ASR_RESOURCE_ID,
-        "X-Api-Request-Id": uuid4().hex,
-        "X-Api-Sequence": "-1",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "user": {"uid": "interview_coach"},
-        "audio": {"data": base64.b64encode(audio_bytes).decode()},
-        "request": {
-            "model_name": "bigmodel",
-            "enable_punc": True,
-            "enable_itn": True,
-            "enable_ddc": False,
-            "show_utterances": True,
-        },
-    }
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=60)
-        result = parse_api_response(response, "ASR")
-    except RuntimeError:
-        raise
-    except Exception as exc:
-        raise RuntimeError(f"ASR 请求失败：{exc}") from exc
-
-    body_header = result.get("header", {}) if isinstance(result, dict) else {}
-    status_code = str(
-        response.headers.get("X-Api-Status-Code")
-        or body_header.get("code")
-        or ""
-    ).strip()
-    status_message = str(
-        response.headers.get("X-Api-Message")
-        or body_header.get("message")
-        or ""
-    ).strip()
-    if status_code == "20000003":
-        return ""
-    if status_code and status_code != "20000000":
-        detail = status_message or str(result)[:300]
-        raise RuntimeError(f"ASR 识别失败：code {status_code} {detail}")
-
-    try:
-        return str(result["result"]["text"]).strip()
-    except (KeyError, TypeError) as exc:
-        raise RuntimeError(f"ASR 返回格式异常：{str(result)[:300]}") from exc
-
-
-def text2audio(text: str) -> bytes:
-    url = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
-    headers = {
-        **volc_auth_headers("tts"),
-        "X-Api-Resource-Id": VOLC_TTS_RESOURCE_ID,
-        "X-Api-Request-Id": uuid4().hex,
-        "Content-Type": "application/json",
-        "Connection": "keep-alive",
-        "X-Control-Require-Usage-Tokens-Return": "*",
-    }
-    payload = {
-        "user": {"uid": "interview_coach"},
-        "req_params": {
-            "text": text,
-            "speaker": VOICE_TYPE,
-            "audio_params": {
-                "format": "mp3",
-                "sample_rate": 24000,
-            },
-        },
-    }
-
-    try:
-        response = requests.post(
-            url,
-            json=payload,
-            headers=headers,
-            timeout=(10, 120),
-            stream=True,
-        )
-    except Exception as exc:
-        raise RuntimeError(f"TTS 请求失败：{exc}") from exc
-
-    if not response.ok:
-        detail = response.text[:500].strip()
-        try:
-            error_data = response.json()
-            detail = (
-                error_data.get("message")
-                or error_data.get("header", {}).get("message")
-                or detail
-            )
-        except ValueError:
-            pass
-        raise RuntimeError(f"TTS HTTP {response.status_code}：{detail}")
-
-    audio_chunks: list[bytes] = []
-    try:
-        for raw_line in response.iter_lines(decode_unicode=True):
-            if not raw_line:
-                continue
-            try:
-                event = json.loads(raw_line)
-            except json.JSONDecodeError:
-                continue
-
-            header = event.get("header", {}) if isinstance(event, dict) else {}
-            code = int(event.get("code", header.get("code", 0)) or 0)
-            message = event.get("message") or header.get("message") or ""
-            if code == 20000000:
-                break
-            if code != 0:
-                raise RuntimeError(f"TTS 合成失败：code {code} {message}")
-
-            audio_base64 = event.get("data")
-            if audio_base64:
-                audio_chunks.append(base64.b64decode(audio_base64))
-    except RuntimeError:
-        raise
-    except Exception as exc:
-        raise RuntimeError(f"TTS 响应解析失败：{exc}") from exc
-    finally:
-        response.close()
-
-    if not audio_chunks:
-        raise RuntimeError("TTS 合成失败：接口没有返回音频数据")
-    return b"".join(audio_chunks)
-
-
 def set_question_audio(question: str) -> None:
     try:
         st.session_state.question_audio = text2audio(question)

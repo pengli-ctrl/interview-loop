@@ -18,6 +18,7 @@ st.set_page_config(page_title="全真大厂面试模拟器", layout="wide")
 
 from interview_loop.core.flow import FlowAction, decide_next_step
 from interview_loop.core.question_engine import questions_too_similar
+from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
 from interview_loop.config import (
     GLOBAL_STATS_PATH,
     LLM_API_KEY,
@@ -603,17 +604,9 @@ def set_question_audio(question: str) -> None:
         st.session_state.question_audio_error = str(exc)
 # ===================== 面试业务 =====================
 def extract_tags(review_text: str, valid_tags: list[str]) -> list[str]:
-    prompt = f"""从下面复盘文本提取标签，只输出 JSON 数组，例如 ["Temporal", "落地细节"]。
-标签只能从列表选择：{",".join(valid_tags)}
-文本：{review_text}"""
     try:
-        raw = llm_call("", prompt).strip()
-        start = raw.find("[")
-        end = raw.rfind("]")
-        if start == -1 or end < start:
-            return []
-        parsed = json.loads(raw[start : end + 1])
-        return [tag for tag in parsed if tag in valid_tags]
+        raw = llm_call("", build_tag_prompt(review_text, valid_tags)).strip()
+        return parse_tags(raw, valid_tags)
     except Exception:
         return []
 
@@ -692,15 +685,12 @@ def generate_review(mode_cfg: dict) -> bool:
         return False
 
     tag_list = mode_cfg["tags"]
-    reviewer_prompt = f"""你是面试评审，轮次：{st.session_state.mode}，风格：{st.session_state.style}。
-输出固定结构：
-1. 📊 打分（架构深度、落地细节、表达流畅度，0-10）
-2. ✅ 优点
-3. ❌ 不足（附带标签，标签只能从{tag_list}）
-4. 📝 口述优化版本
-5. 📚 知识点补充
-6. 💡 练习建议
-对话记录：{json.dumps(st.session_state.messages, ensure_ascii=False)}"""
+    reviewer_prompt = build_review_prompt(
+        mode=st.session_state.mode,
+        style=st.session_state.style,
+        valid_tags=tag_list,
+        messages=st.session_state.messages,
+    )
     try:
         feedback = llm_call(reviewer_prompt, "")
     except Exception as exc:

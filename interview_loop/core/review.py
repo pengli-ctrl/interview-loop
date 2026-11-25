@@ -1,4 +1,22 @@
 import json
+import re
+
+_SCORE_LINE = re.compile(
+    r"(?im)^\s*(?:[-*]\s*)?(?:评分|打分|总评分|综合得分|总分).*$"
+)
+_SCORE_VALUE = re.compile(r"(?<!\d)\d+(?:\.\d+)?\s*/\s*10")
+
+
+def strip_numeric_scores(text: str) -> str:
+    """Remove score claims so the review stays qualitative."""
+    lines = []
+    for line in str(text or "").splitlines():
+        if _SCORE_LINE.match(line):
+            continue
+        cleaned = _SCORE_VALUE.sub("", line).strip()
+        if cleaned:
+            lines.append(cleaned)
+    return "\n".join(lines).strip()
 
 
 def build_review_prompt(
@@ -9,7 +27,7 @@ def build_review_prompt(
 ) -> str:
     return f"""你是面试评审，轮次：{mode}，风格：{style}。
 输出固定结构：
-1. 📊 打分（架构深度、落地细节、表达流畅度，0-10）
+1. 总评（只写文字评价，不输出任何数字分数）
 2. ✅ 优点
 3. ❌ 不足（附带标签，标签只能从{valid_tags}）
 4. 📝 口述优化版本

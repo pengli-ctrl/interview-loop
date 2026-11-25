@@ -8,7 +8,6 @@ def build_demo_llm_response(system_prompt: str, user_msg: str) -> str:
         return '["RAG", "Temporal"]'
     if "面试评审" in system_prompt:
         return """## 演示复盘
-- 评分：8/10
 - 优点：结构清晰，能够结合真实项目说明技术取舍。
 - 不足：部分回答可以进一步补充量化结果和失败案例。
 - 建议：继续训练项目深挖、系统设计和故障排查。"""

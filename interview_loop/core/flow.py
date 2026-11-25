@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from enum import Enum
 
@@ -71,3 +72,20 @@ def decide_next_step(
         main_index=0,
         followup_count=0,
     )
+
+
+END_REQUEST_PHRASES = {
+    "结束面试",
+    "结束本轮面试",
+    "结束面试并生成复盘",
+    "本次面试到此结束",
+    "面试结束",
+    "请结束面试",
+    "请结束本轮面试",
+    "结束面试吧",
+}
+
+
+def is_explicit_end_request(answer: str) -> bool:
+    cleaned = re.sub(r"[\s,.!?，。！？、]+", "", str(answer or ""))
+    return cleaned in END_REQUEST_PHRASES

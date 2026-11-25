@@ -62,9 +62,13 @@ def test_short_job_description_is_rejected(catalog):
         validate_job_description("招 Python 工程师", catalog)
 
 
-def test_job_description_without_supported_skills_is_rejected(catalog):
-    with pytest.raises(JobDescriptionError, match="未识别"):
-        validate_job_description("负责团队日常沟通、项目协调和业务运营工作，需要良好的表达能力、跨部门协作意识和长期规划能力。", catalog)
+def test_job_description_outside_catalog_is_marked_unscored(catalog):
+    jd = "负责团队日常沟通、项目协调和业务运营工作，需要良好的表达能力、跨部门协作意识和长期规划能力。"
+    assert validate_job_description(jd, catalog) == jd
+    report = assess_job_match(jd, "", catalog)
+    assert report.match_level == "unscored"
+    assert report.jd_skills == ()
+    assert any("技能目录未覆盖" in risk for risk in report.risk_areas)
 
 
 def test_report_roundtrip_and_context(catalog):

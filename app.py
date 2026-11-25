@@ -13,19 +13,10 @@ st.set_page_config(
     layout="wide",
 )
 
-from interview_loop.admin.control_plane import (
-    model_profile_rows,
-    quality_metrics,
-    recent_runs,
-    run_rows,
-    scenario_rows,
-    tool_rows,
-)
 from interview_loop.config import (
     ADMIN_MODE,
     BASE_DIR,
     DEMO_MODE,
-    GLOBAL_STATS_PATH,
     MODE_CONFIG,
     MODE_LIST,
     RECORD_DIR,
@@ -33,7 +24,11 @@ from interview_loop.config import (
     SCENARIO_REGISTRY,
     STYLE_LIST,
 )
-from interview_loop.core.flow import FlowAction, decide_next_step
+from interview_loop.core.flow import (
+    FlowAction,
+    decide_next_step,
+    is_explicit_end_request,
+)
 from interview_loop.core.job_match import (
     JobDescriptionError,
     JobMatchReport,
@@ -47,7 +42,12 @@ from interview_loop.core.question_engine import (
     build_stage_question_prompt,
     questions_too_similar,
 )
-from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
+from interview_loop.core.review import (
+    build_review_prompt,
+    build_tag_prompt,
+    parse_tags,
+    strip_numeric_scores,
+)
 from interview_loop.evaluation.interview_report import (
     InterviewReport,
     build_interview_report,
@@ -55,7 +55,10 @@ from interview_loop.evaluation.interview_report import (
     compare_weak_areas,
 )
 from interview_loop.evaluation.rag_benchmark import evaluate_default_rag
-from interview_loop.export.markdown import safe_filename_part
+from interview_loop.export.markdown import (
+    build_markdown_record,
+    safe_filename_part,
+)
 from interview_loop.platform.agent_run import AgentRun, RunStatus
 from interview_loop.platform.builtin_tools import build_default_tool_registry
 from interview_loop.platform.model_gateway import (
@@ -63,11 +66,15 @@ from interview_loop.platform.model_gateway import (
     default_tenant_quota_store,
     default_usage_budget,
 )
-from interview_loop.platform.run_repository import SQLiteAgentRunRepository
 from interview_loop.rag.resume import extract_resume_text
 from interview_loop.rag.retriever import build_rag, query_resume
 from interview_loop.services.asr import audio2text
 from interview_loop.services.tts import text2audio
+from interview_loop.storage.draft_store import (
+    delete_interview_draft,
+    latest_interview_draft,
+    save_interview_draft,
+)
 from interview_loop.storage.session_store import (
     build_session_data,
     new_session_id,
@@ -78,11 +85,21 @@ from interview_loop.storage.session_store import (
 )
 from interview_loop.storage.stats_store import load_stats, save_stats
 from interview_loop.storage.tenant_paths import tenant_scoped_dir
+from interview_loop.ui.admin_view import render_admin_view
+from interview_loop.ui.components import (
+    RETENTION_OPTIONS,
+    inject_ui_css,
+    render_chips,
+    render_metric_grid,
+)
+from interview_loop.ui.report_view import render_report_view
 
 SKILL_CATALOG = load_default_skill_catalog()
 TENANT_QUOTA_STORE = default_tenant_quota_store()
 MODEL_GATEWAY = ModelGateway(tenant_quota_store=TENANT_QUOTA_STORE)
 TOOL_REGISTRY = build_default_tool_registry()
+
+inject_ui_css()
 
 
 def record_model_call(result, node: str) -> None:
@@ -187,8 +204,65 @@ def list_session_files() -> list[Path]:
     return _list_session_files(tenant_save_dir())
 
 
+def current_draft_data() -> dict:
+    job_match = st.session_state.get("job_match")
+    return {
+        "version": 1,
+        "session_id": st.session_state.get("session_id"),
+        "mode": st.session_state.get("mode"),
+        "interview_type": st.session_state.get("interview_type"),
+        "style": st.session_state.get("style"),
+        "current_stage_idx": st.session_state.get("current_stage_idx", 0),
+        "stage_main_index": st.session_state.get("stage_main_index", 0),
+        "stage_followup_count": st.session_state.get("stage_followup_count", 0),
+        "messages": list(st.session_state.get("messages", [])),
+        "current_question": st.session_state.get("current_question", ""),
+        "started_at": st.session_state.get("interview_started_at"),
+        "start_time": st.session_state.get("start_time"),
+        "stage_started_at": st.session_state.get("stage_started_at"),
+        "timer_alert": st.session_state.get("timer_alert", False),
+        "job_description": st.session_state.get("job_description", ""),
+        "job_match": job_match.to_dict() if isinstance(job_match, JobMatchReport) else None,
+        "resume_text": st.session_state.get("resume_text", ""),
+        "resume_name": st.session_state.get("resume_name"),
+        "resume_chars": st.session_state.get("resume_chars", 0),
+        "resume_signature": st.session_state.get("resume_signature"),
+        "resume_rag_mode": st.session_state.get("resume_rag_mode"),
+        "tenant_id": current_tenant_id(),
+        "user_id": st.session_state.get("user_id", "local"),
+        "consent_granted": st.session_state.get("consent_granted", False),
+        "consent_at": st.session_state.get("consent_at"),
+        "retention_policy": st.session_state.get("retention_policy", "standard"),
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def save_current_draft() -> None:
+    if st.session_state.get("start_time") is None:
+        return
+    try:
+        save_interview_draft(tenant_save_dir(), current_draft_data())
+    except Exception as exc:
+        record_run_error(exc, "draft.save.failed")
+        st.session_state.draft_error = str(exc)
+
+
+def clear_current_draft() -> None:
+    session_id = st.session_state.get("session_id")
+    if session_id:
+        try:
+            delete_interview_draft(tenant_save_dir(), session_id)
+        except OSError:
+            pass
+    st.session_state.pending_draft = None
+
+
+def tenant_stats_path() -> Path:
+    return tenant_save_dir() / "weak_stats.json"
+
+
 def save_global_weak_stats(stats: dict) -> None:
-    save_stats(GLOBAL_STATS_PATH, stats)
+    save_stats(tenant_stats_path(), stats)
 
 
 def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> Path:
@@ -252,6 +326,7 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
     if budget is not None:
         data["model_usage"] = budget.to_dict()
     json_path = save_session_json(tenant_save_dir(), data)
+    st.session_state.report_duration_seconds = duration_seconds
     st.session_state.last_record_path = str(markdown_path)
     st.session_state.last_record_markdown = markdown
     st.session_state.session_list = list_session_files()
@@ -259,7 +334,7 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
 
 
 # 初始化 session state
-_initial_weak_stats, _weak_stats_error = load_stats(GLOBAL_STATS_PATH, MODE_LIST)
+_initial_weak_stats, _weak_stats_error = load_stats(tenant_stats_path(), MODE_LIST)
 if _weak_stats_error:
     st.warning(f"薄弱统计文件损坏，已使用空统计：{_weak_stats_error}")
 
@@ -292,11 +367,13 @@ defaults = {
     "resume_chars": 0,
     "resume_error": None,
     "resume_rag_mode": None,
+    "resume_upload_version": 0,
     "question_audio": None,
     "question_audio_error": None,
     "last_audio_digest": None,
     "global_weak_stats": _initial_weak_stats,
     "start_time": None,
+    "stage_started_at": None,
     "timer_alert": False,
     "interview_started_at": None,
     "last_record_path": None,
@@ -304,10 +381,88 @@ defaults = {
     "agent_run": None,
     "model_budget": default_usage_budget(),
     "session_list": list_session_files(),
+    "draft_error": None,
+    "report_duration_seconds": None,
+    "delete_confirm_id": None,
 }
 for key, value in defaults.items():
     st.session_state.setdefault(key, value)
 st.session_state.setdefault("style", MODE_CONFIG[st.session_state.mode]["default_style"])
+st.session_state.setdefault("pending_draft", latest_interview_draft(tenant_save_dir()))
+
+
+def restore_pending_draft() -> None:
+    draft = st.session_state.get("pending_draft")
+    if not isinstance(draft, dict):
+        return
+    resume_text = str(draft.get("resume_text") or "")
+    retriever = None
+    rag_mode = draft.get("resume_rag_mode")
+    if resume_text:
+        try:
+            with st.spinner("正在恢复简历上下文..."):
+                retriever, rag_mode = build_rag(resume_text)
+        except Exception:
+            retriever = None
+
+    st.session_state.session_id = str(draft.get("session_id") or new_session_id())
+    st.session_state.mode = str(draft.get("mode") or MODE_LIST[0])
+    st.session_state.interview_type = str(
+        draft.get("interview_type") or "闯关全真面试"
+    )
+    st.session_state.style = str(
+        draft.get("style") or MODE_CONFIG[st.session_state.mode]["default_style"]
+    )
+    st.session_state.current_stage_idx = int(draft.get("current_stage_idx", 0))
+    st.session_state.stage_main_index = int(draft.get("stage_main_index", 0))
+    st.session_state.stage_followup_count = int(draft.get("stage_followup_count", 0))
+    st.session_state.messages = list(draft.get("messages") or [])
+    st.session_state.current_question = str(draft.get("current_question") or "")
+    st.session_state.interview_started_at = draft.get("started_at")
+    st.session_state.start_time = draft.get("start_time")
+    st.session_state.stage_started_at = draft.get("stage_started_at")
+    st.session_state.timer_alert = bool(draft.get("timer_alert", False))
+    st.session_state.job_description = str(draft.get("job_description") or "")
+    match_data = draft.get("job_match")
+    st.session_state.job_match = (
+        JobMatchReport.from_dict(match_data) if isinstance(match_data, dict) else None
+    )
+    st.session_state.resume_text = resume_text
+    st.session_state.resume_retriever = retriever
+    st.session_state.resume_rag_mode = rag_mode
+    st.session_state.resume_name = draft.get("resume_name")
+    st.session_state.resume_chars = int(draft.get("resume_chars", len(resume_text)))
+    st.session_state.resume_signature = draft.get("resume_signature")
+    st.session_state.resume_error = None
+    st.session_state.consent_granted = bool(draft.get("consent_granted", False))
+    st.session_state.consent_at = draft.get("consent_at")
+    st.session_state.retention_policy = str(draft.get("retention_policy", "standard"))
+    st.session_state.feedback = None
+    st.session_state.structured_report = None
+    st.session_state.last_tags = []
+    st.session_state.report_duration_seconds = None
+    st.session_state.last_record_path = None
+    st.session_state.last_record_markdown = None
+    st.session_state.question_audio = None
+    st.session_state.question_audio_error = None
+    st.session_state.agent_run = None
+    st.session_state.model_budget = default_usage_budget()
+    st.session_state.pending_draft = None
+    clear_current_draft()
+    st.session_state.current_view = "interview"
+    st.session_state.nav_version = int(st.session_state.get("nav_version", 0)) + 1
+    st.rerun()
+
+
+def discard_pending_draft() -> None:
+    draft = st.session_state.get("pending_draft")
+    if isinstance(draft, dict) and draft.get("session_id"):
+        try:
+            delete_interview_draft(tenant_save_dir(), str(draft["session_id"]))
+        except OSError:
+            pass
+    st.session_state.pending_draft = None
+    st.rerun()
 
 # 60 分钟面试：每阶段按主问题计划执行，并根据回答动态追问。
 if st.session_state.get("interview_flow_version") != 4:
@@ -319,7 +474,9 @@ if st.session_state.get("interview_flow_version") != 4:
     st.session_state.structured_report = None
     st.session_state.current_question = ""
     st.session_state.start_time = None
+    st.session_state.stage_started_at = None
     st.session_state.interview_started_at = None
+    st.session_state.report_duration_seconds = None
     st.session_state.last_record_path = None
     st.session_state.last_record_markdown = None
     st.session_state.agent_run = None
@@ -330,7 +487,24 @@ if st.session_state.get("interview_flow_version") != 4:
     st.session_state.interview_flow_version = 4
 
 
+def clear_resume_state(*, clear_upload: bool = False) -> None:
+    st.session_state.resume_text = ""
+    st.session_state.resume_retriever = None
+    st.session_state.resume_signature = None
+    st.session_state.resume_name = None
+    st.session_state.resume_chars = 0
+    st.session_state.resume_error = None
+    st.session_state.resume_rag_mode = None
+    st.session_state.job_match = None
+    if clear_upload:
+        st.session_state.resume_upload_version = int(
+            st.session_state.get("resume_upload_version", 0)
+        ) + 1
+
+
 def reset_interview_state() -> None:
+    clear_current_draft()
+    st.session_state.pending_draft = None
     st.session_state.current_stage_idx = 0
     st.session_state.stage_main_index = 0
     st.session_state.stage_followup_count = 0
@@ -342,8 +516,10 @@ def reset_interview_state() -> None:
     st.session_state.question_audio_error = None
     st.session_state.session_id = new_session_id()
     st.session_state.start_time = None
+    st.session_state.stage_started_at = None
     st.session_state.timer_alert = False
     st.session_state.interview_started_at = None
+    st.session_state.report_duration_seconds = None
     st.session_state.last_record_path = None
     st.session_state.last_record_markdown = None
     st.session_state.agent_run = None
@@ -351,7 +527,7 @@ def reset_interview_state() -> None:
     st.session_state.consent_granted = False
     st.session_state.consent_at = None
     st.session_state.last_tags = []
-    st.session_state.resume_text = ""
+    clear_resume_state(clear_upload=True)
     st.session_state.job_description = ""
     st.session_state.job_match = None
     st.session_state.job_description_input = ""
@@ -478,7 +654,9 @@ def generate_review(mode_cfg: dict) -> bool:
             tenant_id=st.session_state.get("tenant_id", "local"),
         )
         record_model_call(result, "model.review")
-        feedback = result.content
+        feedback = strip_numeric_scores(result.content)
+        if not feedback:
+            raise RuntimeError("面试官总评为空，请重试复盘生成")
     except Exception as exc:
         record_run_error(exc, "model.review.failed")
         st.error(str(exc))
@@ -519,38 +697,51 @@ def generate_review(mode_cfg: dict) -> bool:
         save_session(st.session_state.mode, st.session_state.messages, feedback, tags)
     except Exception as exc:
         st.warning(f"复盘已生成，但保存失败：{exc}")
+    else:
+        clear_current_draft()
     return True
 
 
 def process_answer(ans_text: str, mode_cfg: dict) -> bool:
-    st.session_state.messages.append(
-        {"role": "interviewer", "content": st.session_state.current_question}
-    )
-    st.session_state.messages.append({"role": "candidate", "content": ans_text})
+    current_question = str(st.session_state.get("current_question") or "")
+    current_stage_idx = int(st.session_state.get("current_stage_idx", 0))
     agent_run = st.session_state.get("agent_run")
-    if agent_run is not None:
-        agent_run.record_event(
-            "answer.received",
-            "interview.answer",
-            {"answer_length": len(ans_text)},
-        )
 
-    if "结束面试" in ans_text:
-        return generate_review(mode_cfg)
+    if is_explicit_end_request(ans_text):
+        st.session_state.messages.extend(
+            [
+                {"role": "interviewer", "content": current_question},
+                {"role": "candidate", "content": ans_text},
+            ]
+        )
+        if agent_run is not None:
+            agent_run.record_event(
+                "answer.received",
+                "interview.answer",
+                {"answer_length": len(ans_text)},
+            )
+        if generate_review(mode_cfg):
+            return True
+        del st.session_state.messages[-2:]
+        save_current_draft()
+        return False
 
     ctx = query_resume(
         st.session_state.resume_retriever,
-        f"{st.session_state.current_question}\n{ans_text}",
+        current_question + "\n" + ans_text,
     )
     job_ctx = current_job_context()
+    commit_stage_idx = current_stage_idx
+    commit_main_index = int(st.session_state.get("stage_main_index", 0))
+    commit_followup_count = int(st.session_state.get("stage_followup_count", 0))
+
     if st.session_state.interview_type == "闯关全真面试":
-        current_stage_idx = st.session_state.current_stage_idx
         current_stage = mode_cfg["stage_list"][current_stage_idx]
         question_plan = current_stage.get("question_plan") or current_stage["pool"]
         decision = decide_next_step(
             main_count=len(question_plan),
-            main_index=st.session_state.stage_main_index,
-            followup_count=st.session_state.stage_followup_count,
+            main_index=commit_main_index,
+            followup_count=commit_followup_count,
             max_followups=int(current_stage.get("max_followups", 0)),
             answer=ans_text,
             is_last_stage=current_stage_idx == len(mode_cfg["stage_list"]) - 1,
@@ -566,7 +757,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                     decision.main_index,
                     decision.followup_count,
                     True,
-                    previous_question=st.session_state.current_question,
+                    previous_question=current_question,
                     last_answer=ans_text,
                     job_ctx=job_ctx,
                 )
@@ -574,7 +765,8 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                 record_run_error(exc, "model.question.failed")
                 st.error(str(exc))
                 return False
-            st.session_state.stage_followup_count = decision.followup_count
+            commit_main_index = decision.main_index
+            commit_followup_count = decision.followup_count
         elif decision.action is FlowAction.NEXT_MAIN:
             try:
                 question = get_stage_question(
@@ -585,7 +777,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                     decision.main_index,
                     0,
                     False,
-                    previous_question=st.session_state.current_question,
+                    previous_question=current_question,
                     last_answer=ans_text,
                     job_ctx=job_ctx,
                 )
@@ -593,8 +785,8 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                 record_run_error(exc, "model.question.failed")
                 st.error(str(exc))
                 return False
-            st.session_state.stage_main_index = decision.main_index
-            st.session_state.stage_followup_count = 0
+            commit_main_index = decision.main_index
+            commit_followup_count = 0
         elif decision.action is FlowAction.NEXT_STAGE:
             next_stage_idx = current_stage_idx + 1
             try:
@@ -606,7 +798,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                     0,
                     0,
                     False,
-                    previous_question=st.session_state.current_question,
+                    previous_question=current_question,
                     last_answer=ans_text,
                     job_ctx=job_ctx,
                 )
@@ -614,47 +806,82 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                 record_run_error(exc, "model.question.failed")
                 st.error(str(exc))
                 return False
-            st.session_state.current_stage_idx = next_stage_idx
-            st.session_state.stage_main_index = 0
-            st.session_state.stage_followup_count = 0
-            record_stage_transition(mode_cfg, current_stage_idx, next_stage_idx)
+            commit_stage_idx = next_stage_idx
+            commit_main_index = 0
+            commit_followup_count = 0
         else:
-            question = "本次面试所有阶段完成，你可以说【结束面试】或点击 Finish 生成复盘。"
-            st.session_state.current_stage_idx = len(mode_cfg["stage_list"])
-            st.session_state.stage_main_index = 0
-            st.session_state.stage_followup_count = 0
-            record_stage_transition(
-                mode_cfg,
-                current_stage_idx,
-                len(mode_cfg["stage_list"]),
-            )
+            question = "本次面试所有阶段完成，你可以点击“结束面试并生成复盘”。"
+            commit_stage_idx = len(mode_cfg["stage_list"])
+            commit_main_index = 0
+            commit_followup_count = 0
     else:
         try:
             question = get_weak_question(st.session_state.mode)
         except Exception as exc:
+            record_run_error(exc, "model.question.failed")
             st.error(str(exc))
             return False
 
+    st.session_state.messages.extend(
+        [
+            {"role": "interviewer", "content": current_question},
+            {"role": "candidate", "content": ans_text},
+        ]
+    )
+    if agent_run is not None:
+        agent_run.record_event(
+            "answer.received",
+            "interview.answer",
+            {"answer_length": len(ans_text)},
+        )
+    if commit_stage_idx != current_stage_idx:
+        record_stage_transition(mode_cfg, current_stage_idx, commit_stage_idx)
+        st.session_state.stage_started_at = time.time()
+    st.session_state.current_stage_idx = commit_stage_idx
+    st.session_state.stage_main_index = commit_main_index
+    st.session_state.stage_followup_count = commit_followup_count
     st.session_state.current_question = question
     record_question_generated(
         question,
         mode_cfg,
-        st.session_state.current_stage_idx,
-        st.session_state.stage_main_index,
-        st.session_state.stage_followup_count,
+        commit_stage_idx,
+        commit_main_index,
+        commit_followup_count,
     )
     set_question_audio(question)
+    save_current_draft()
     return True
 
 
 @st.fragment(run_every="1s", key="interview_timer_fragment")
 def render_interview_timer() -> None:
+    scenario = SCENARIO_REGISTRY.scenario_for_round(st.session_state.mode)
+    total_seconds = max(1, int(scenario.duration_minutes) * 60)
     elapsed = time.time() - st.session_state.start_time
-    remain = max(0, 60 * 60 - elapsed)
+    remain = max(0, total_seconds - elapsed)
     minutes, seconds = int(remain // 60), int(remain % 60)
-    st.metric("⏱️ 剩余面试时间", f"{minutes}分{seconds}秒")
+
+    stage_idx = int(st.session_state.get("current_stage_idx", 0))
+    stage_text = ""
+    stage_expired = False
+    if stage_idx < len(scenario.stages):
+        stage = scenario.stages[stage_idx]
+        stage_started_at = st.session_state.get("stage_started_at") or st.session_state.start_time
+        stage_budget = max(1, int(stage.time_budget_min) * 60)
+        stage_remain = max(0, stage_budget - (time.time() - stage_started_at))
+        stage_minutes, stage_seconds = int(stage_remain // 60), int(stage_remain % 60)
+        stage_text = f" · {stage.name} {stage_minutes:02d}:{stage_seconds:02d}"
+        stage_expired = stage_remain <= 0
+
+    st.markdown(
+        f'<div class="il-timer-row"><span class="il-timer-pill">'
+        f"⏱ {minutes:02d}:{seconds:02d}{stage_text}</span></div>",
+        unsafe_allow_html=True,
+    )
+    if stage_expired:
+        st.caption("本阶段建议时间已到，建议完成当前问题后进入下一阶段。")
     if remain <= 0 and not st.session_state.timer_alert:
-        st.warning("⚠️ 60 分钟面试时长到，建议结束面试生成复盘")
+        st.warning("面试时长已到，建议结束面试生成复盘。")
         st.session_state.timer_alert = True
 
 
@@ -687,6 +914,35 @@ def set_view(view: str) -> None:
 def go_to(view: str) -> None:
     set_view(view)
     st.rerun()
+
+
+def finish_interview_confirmed(mode_cfg: dict) -> None:
+    if generate_review(mode_cfg):
+        set_view("report")
+        st.rerun()
+
+
+@st.dialog("确认结束面试")
+def confirm_finish_interview(mode_cfg: dict) -> None:
+    st.write(
+        "结束后将生成当前已完成回答的复盘和 Markdown 记录。"
+        "未作答的后续问题不会自动补齐。"
+    )
+    cancel_col, confirm_col = st.columns(2)
+    if cancel_col.button(
+        "继续面试",
+        key="cancel_finish_interview",
+        width="stretch",
+    ):
+        st.rerun()
+    confirm_col.button(
+        "确认结束",
+        type="primary",
+        key="confirm_finish_interview",
+        width="stretch",
+        on_click=finish_interview_confirmed,
+        args=(mode_cfg,),
+    )
 
 
 def render_sidebar() -> None:
@@ -729,6 +985,31 @@ def render_dashboard() -> None:
     st.title("InterviewLoop")
     st.caption("把一次面试练习，变成持续可见的能力成长。")
 
+    pending_draft = st.session_state.get("pending_draft")
+    if isinstance(pending_draft, dict) and st.session_state.get("start_time") is None:
+        with st.container(border=True):
+            st.markdown("## 发现未完成的面试")
+            st.write(
+                f"{pending_draft.get('mode', '未知轮次')} · "
+                f"已完成 {len(pending_draft.get('messages', [])) // 2} 轮回答 · "
+                f"最后更新 {pending_draft.get('updated_at', '未记录')}"
+            )
+            st.caption(f"当前问题：{pending_draft.get('current_question', '未记录')}")
+            recovery_left, recovery_right = st.columns(2)
+            if recovery_left.button(
+                "恢复面试",
+                type="primary",
+                key="restore_interview_draft",
+                width="stretch",
+            ):
+                restore_pending_draft()
+            if recovery_right.button(
+                "放弃草稿",
+                key="discard_interview_draft",
+                width="stretch",
+            ):
+                discard_pending_draft()
+
     sessions = list_session_files()
     latest = None
     if sessions:
@@ -748,9 +1029,12 @@ def render_dashboard() -> None:
             "薄弱项和下一步训练建议。"
         )
         action_left, action_right = st.columns([1, 1])
+        start_button_type = (
+            "secondary" if isinstance(pending_draft, dict) else "primary"
+        )
         if action_left.button(
             "开始一次面试",
-            type="primary",
+            type=start_button_type,
             key="dashboard_start",
             width="stretch",
         ):
@@ -765,14 +1049,23 @@ def render_dashboard() -> None:
     latest_score = None
     if latest:
         latest_score = (latest.get("structured_report") or {}).get("overall_score")
-    metric_cols = st.columns(4)
-    metric_cols[0].metric("历史训练", len(sessions))
-    metric_cols[1].metric("当前轮次", st.session_state.mode)
-    metric_cols[2].metric(
-        "最近得分",
-        f"{float(latest_score):.1f}/10" if latest_score is not None else "暂无",
-    )
-    metric_cols[3].metric("弱项记录", weak_items)
+    if sessions:
+        render_metric_grid(
+            [
+                ("历史训练", str(len(sessions))),
+                ("当前轮次", st.session_state.mode),
+                (
+                    "最近参考分",
+                    f"{float(latest_score):.1f}/10" if latest_score is not None else "暂无",
+                ),
+                ("弱项记录", str(weak_items)),
+            ]
+        )
+    else:
+        with st.container(border=True):
+            st.markdown("### 还没有训练记录")
+            st.write("建议先完成一次完整模拟，系统会在结束后生成参考分、复盘和成长记录。")
+            st.caption("首次练习建议：选择一个目标岗位，补充 JD 和简历，完成 3–5 轮回答后生成复盘。")
 
     st.subheader("训练入口")
     card_cols = st.columns(3)
@@ -855,6 +1148,11 @@ def render_setup(mode_cfg: dict) -> None:
                 placeholder="粘贴目标岗位的职责、技能要求和任职资格。",
                 key="job_description_input",
             )
+            st.caption(
+                f"当前技能目录 v{SKILL_CATALOG.version}，覆盖 "
+                f"{len(SKILL_CATALOG.skills)} 个技术关键词。"
+                "目录外的 JD 会标记为“未评分”，但不会阻断面试。"
+            )
             cleaned_jd = jd_value.strip()
             if cleaned_jd != st.session_state.get("job_description", ""):
                 st.session_state.job_description = cleaned_jd
@@ -862,18 +1160,15 @@ def render_setup(mode_cfg: dict) -> None:
             upload = st.file_uploader(
                 "上传简历（可选）",
                 type=["txt", "md", "pdf"],
-                key="resume_upload",
+                key=f"resume_upload_{st.session_state.resume_upload_version}",
             )
             if upload is not None:
                 file_bytes = upload.getvalue()
                 signature = hashlib.sha256(file_bytes).hexdigest()
                 if signature != st.session_state.resume_signature:
+                    clear_resume_state()
                     st.session_state.resume_signature = signature
-                    st.session_state.resume_retriever = None
-                    st.session_state.resume_error = None
-                    st.session_state.resume_rag_mode = None
                     st.session_state.resume_name = upload.name
-                    st.session_state.resume_chars = 0
                     try:
                         with st.spinner("正在解析简历并构建 RAG 索引，只需执行一次..."):
                             resume_text = extract_resume_text(upload)
@@ -887,6 +1182,8 @@ def render_setup(mode_cfg: dict) -> None:
                             st.session_state.job_match = None
                     except Exception as exc:
                         st.session_state.resume_error = str(exc)
+            elif st.session_state.resume_signature is not None:
+                clear_resume_state()
             if st.session_state.resume_error:
                 st.error(f"简历加载失败：{st.session_state.resume_error}")
             elif st.session_state.resume_retriever is not None:
@@ -901,11 +1198,21 @@ def render_setup(mode_cfg: dict) -> None:
             saved_match = st.session_state.get("job_match")
             if isinstance(saved_match, JobMatchReport):
                 st.markdown("#### 岗位匹配摘要")
-                preview_cols = st.columns(3)
-                preview_cols[0].metric("匹配度", f"{saved_match.match_score}/100")
-                preview_cols[1].metric("已匹配", len(saved_match.matched_skills))
-                preview_cols[2].metric("待补强", len(saved_match.missing_skills))
-                if saved_match.missing_skills:
+                match_value = (
+                    "未评分"
+                    if saved_match.match_level == "unscored"
+                    else f"{saved_match.match_score}/100"
+                )
+                render_chips(
+                    [
+                        ("匹配度", match_value),
+                        ("已匹配", str(len(saved_match.matched_skills))),
+                        ("待补强", str(len(saved_match.missing_skills))),
+                    ]
+                )
+                if saved_match.match_level == "unscored":
+                    st.caption("该 JD 不在当前技能目录内，本次不计算匹配分。")
+                elif saved_match.missing_skills:
                     st.caption("缺失技能：" + "、".join(saved_match.missing_skills[:8]))
 
             col_left, col_right = st.columns(2)
@@ -933,18 +1240,31 @@ def render_setup(mode_cfg: dict) -> None:
                     st.rerun()
         else:
             st.subheader("3. 确认并开始")
-            summary_cols = st.columns(3)
-            summary_cols[0].metric("轮次", st.session_state.mode)
-            summary_cols[1].metric("模式", st.session_state.interview_type)
-            summary_cols[2].metric("风格", st.session_state.style)
+            render_chips(
+                [
+                    ("轮次", st.session_state.mode),
+                    ("模式", st.session_state.interview_type),
+                    ("风格", st.session_state.style),
+                ]
+            )
             current_match = st.session_state.get("job_match")
             if isinstance(current_match, JobMatchReport):
                 st.markdown("#### 岗位匹配")
-                match_cols = st.columns(3)
-                match_cols[0].metric("匹配度", f"{current_match.match_score}/100")
-                match_cols[1].metric("已匹配技能", len(current_match.matched_skills))
-                match_cols[2].metric("缺失技能", len(current_match.missing_skills))
-                if current_match.missing_skills:
+                current_match_value = (
+                    "未评分"
+                    if current_match.match_level == "unscored"
+                    else f"{current_match.match_score}/100"
+                )
+                render_chips(
+                    [
+                        ("匹配度", current_match_value),
+                        ("已匹配", str(len(current_match.matched_skills))),
+                        ("待补强", str(len(current_match.missing_skills))),
+                    ]
+                )
+                if current_match.match_level == "unscored":
+                    st.caption("技能目录未覆盖该 JD，本次不计算匹配分，面试将使用通用技术上下文。")
+                elif current_match.missing_skills:
                     st.caption("面试将重点验证：" + "、".join(current_match.missing_skills[:5]))
             if st.session_state.get("resume_name"):
                 st.caption(f"简历上下文：{st.session_state.resume_name}")
@@ -962,13 +1282,21 @@ def render_setup(mode_cfg: dict) -> None:
             elif not consent:
                 st.session_state.consent_granted = False
                 st.session_state.consent_at = None
-            st.session_state.retention_policy = st.selectbox(
+            retention_labels = list(RETENTION_OPTIONS.values())
+            current_retention = RETENTION_OPTIONS.get(
+                st.session_state.retention_policy,
+                RETENTION_OPTIONS["standard"],
+            )
+            selected_retention = st.selectbox(
                 "数据保留策略",
-                ["ephemeral", "standard", "extended"],
-                index=["ephemeral", "standard", "extended"].index(
-                    st.session_state.retention_policy
-                ),
-                help="ephemeral=1天，standard=30天，extended=365天",
+                retention_labels,
+                index=retention_labels.index(current_retention),
+                help="临时=1天，标准=30天，延长=365天",
+                key="retention_policy_select",
+            )
+            st.session_state.retention_policy = next(
+                key for key, label in RETENTION_OPTIONS.items()
+                if label == selected_retention
             )
             col_left, col_right = st.columns(2)
             if col_left.button("上一步", key="setup_back"):
@@ -1036,7 +1364,9 @@ def render_setup(mode_cfg: dict) -> None:
                         record_run_error(exc, "interview.start.failed")
                         st.error(str(exc))
                     else:
-                        st.session_state.start_time = time.time()
+                        started_now = time.time()
+                        st.session_state.start_time = started_now
+                        st.session_state.stage_started_at = started_now
                         st.session_state.interview_started_at = time.strftime(
                             "%Y-%m-%d_%H-%M-%S"
                         )
@@ -1049,12 +1379,24 @@ def render_setup(mode_cfg: dict) -> None:
                             st.session_state.stage_followup_count,
                         )
                         set_question_audio(question)
+                        save_current_draft()
                         set_view("interview")
                         st.rerun()
 
 
 def render_interview(mode_cfg: dict) -> None:
     st.header("面试室")
+    stage_position = min(
+        int(st.session_state.get("current_stage_idx", 0)),
+        len(mode_cfg["stage_list"]) - 1,
+    )
+    render_chips(
+        [
+            ("轮次", st.session_state.mode),
+            ("阶段", mode_cfg["stage_list"][stage_position]["name"]),
+            ("风格", st.session_state.style),
+        ]
+    )
     if st.session_state.get("start_time") is None or not st.session_state.get("current_question"):
         with st.container(border=True):
             st.markdown("### 还没有进行中的面试")
@@ -1152,124 +1494,44 @@ def render_interview(mode_cfg: dict) -> None:
     st.caption("结束后点击下方按钮生成完整复盘和面试记录。")
     if st.button(
         "结束面试并生成复盘",
-        type="primary",
         key="finish_interview",
-        width="stretch",
+        width="content",
     ):
-        if generate_review(mode_cfg):
-            set_view("report")
-            st.rerun()
+        confirm_finish_interview(mode_cfg)
 
 
 def render_report() -> None:
-    st.header("复盘报告")
     feedback = st.session_state.get("feedback")
-    if not feedback:
-        with st.container(border=True):
-            st.markdown("### 还没有可查看的复盘")
-            st.write("完成一轮面试后，系统会在这里生成结构化复盘。")
-            if st.button("开始一轮面试", type="primary", key="report_empty_start"):
-                go_to("setup")
-        return
-
-    duration_seconds = None
-    if st.session_state.get("start_time") is not None:
+    duration_seconds = st.session_state.get("report_duration_seconds")
+    if duration_seconds is None and st.session_state.get("start_time") is not None:
         duration_seconds = int(max(0, time.time() - st.session_state.start_time))
-    tags = st.session_state.get("last_tags", [])
-    structured_report = st.session_state.get("structured_report")
-    metric_cols = st.columns(4)
-    metric_cols[0].metric(
-        "综合得分",
-        (
-            f"{structured_report.overall_score:.1f}/10"
-            if isinstance(structured_report, InterviewReport)
-            else "旧记录"
-        ),
-    )
-    metric_cols[1].metric("回答轮次", len(st.session_state.messages) // 2)
-    metric_cols[2].metric("薄弱标签", len(tags))
-    metric_cols[3].metric(
-        "用时",
-        f"{(duration_seconds or 0) // 60} 分钟",
-    )
 
-    if isinstance(structured_report, InterviewReport):
-        with st.container(border=True):
-            st.markdown("### 结构化评估")
-            st.write(structured_report.summary)
-            chart_data = pd.DataFrame(
-                [
-                    {"维度": item.label, "得分": item.score}
-                    for item in structured_report.dimensions
-                ]
-            )
-            st.bar_chart(
-                chart_data,
-                x="维度",
-                y="得分",
-                horizontal=True,
-                alt="本次面试各能力维度得分",
-            )
-            strength_col, risk_col = st.columns(2)
-            with strength_col:
-                st.markdown("#### 优势")
-                for item in structured_report.strengths:
-                    st.write(f"- {item}")
-            with risk_col:
-                st.markdown("#### 风险与不足")
-                for item in structured_report.risks:
-                    st.write(f"- {item}")
-            st.markdown("#### 下一步行动计划")
-            for action in structured_report.action_plan:
-                st.write(f"- **{action.priority}** {action.action}")
-            with st.expander("查看回答证据"):
-                for item in structured_report.evidence:
-                    st.markdown(f"**{item.dimension_label}**  {item.score}/10")
-                    st.caption(item.question)
-                    st.write(item.answer_excerpt)
-    else:
-        st.info("这是一条旧版面试记录，未包含结构化评分；原复盘内容仍可正常查看。")
+    def start_new_interview() -> None:
+        go_to("setup")
 
-    job_match = st.session_state.get("job_match")
-    if isinstance(job_match, JobMatchReport):
-        with st.container(border=True):
-            st.markdown("### 岗位匹配")
-            match_cols = st.columns(3)
-            match_cols[0].metric("匹配度", f"{job_match.match_score}/100")
-            match_cols[1].metric("已匹配技能", len(job_match.matched_skills))
-            match_cols[2].metric("缺失技能", len(job_match.missing_skills))
-            if job_match.matched_skills:
-                st.caption("已匹配：" + "、".join(job_match.matched_skills))
-            if job_match.missing_skills:
-                st.caption("需要补强：" + "、".join(job_match.missing_skills))
-            if job_match.suggested_focus:
-                st.caption("建议重点：" + "；".join(job_match.suggested_focus))
-
-    if tags:
-        st.caption("本轮薄弱标签")
-        st.write("  ".join(tags))
-
-    with st.container(border=True):
-        st.markdown(feedback)
-
-    if st.session_state.get("last_record_path"):
-        st.caption(f"完整记录已保存：{st.session_state.last_record_path}")
-        if st.session_state.get("last_record_markdown"):
-            st.download_button(
-                "下载完整面试记录",
-                data=st.session_state.last_record_markdown.encode("utf-8"),
-                file_name=Path(st.session_state.last_record_path).name,
-                mime="text/markdown",
-                key="download_interview_record",
-                width="stretch",
-            )
-
-    action_left, action_right = st.columns(2)
-    if action_left.button("再练一轮", type="primary", key="report_again"):
+    def restart_interview() -> None:
         reset_interview_state()
         st.rerun()
-    if action_right.button("查看成长记录", key="report_growth"):
+
+    def open_growth() -> None:
         go_to("growth")
+
+    render_report_view(
+        feedback=feedback,
+        duration_seconds=duration_seconds,
+        tags=list(st.session_state.get("last_tags", [])),
+        structured_report=st.session_state.get("structured_report"),
+        job_match=st.session_state.get("job_match"),
+        messages_count=len(st.session_state.get("messages", [])),
+        last_record_path=st.session_state.get("last_record_path"),
+        last_record_markdown=st.session_state.get("last_record_markdown"),
+        mode=st.session_state.mode,
+        interview_type=st.session_state.interview_type,
+        style=st.session_state.style,
+        on_start=start_new_interview,
+        on_again=restart_interview,
+        on_growth=open_growth,
+    )
 
 
 def render_growth(mode_cfg: dict) -> None:
@@ -1309,35 +1571,39 @@ def render_growth(mode_cfg: dict) -> None:
         mode=st.session_state.mode,
     )
     st.subheader("能力趋势")
-    if progress_records:
+    if len(progress_records) >= 2:
         trend_data = pd.DataFrame(
             [
-                {"时间": item.time, "综合得分": item.overall_score}
+                {"时间": item.time, "表达结构参考分": item.overall_score}
                 for item in progress_records
             ]
         )
         st.line_chart(
             trend_data,
             x="时间",
-            y="综合得分",
-            alt="当前面试轮次的历史综合得分趋势",
+            y="表达结构参考分",
+            alt="当前面试轮次的历史表达结构参考分趋势",
         )
-        if len(progress_records) >= 2:
-            change = compare_weak_areas(
-                list(progress_records[-1].tags),
-                list(progress_records[-2].tags),
-            )
-            st.caption("最近两次薄弱项变化")
-            if change.new_areas:
-                st.write("新增：" + "、".join(change.new_areas))
-            if change.resolved_areas:
-                st.write("已改善：" + "、".join(change.resolved_areas))
-            if change.persistent_areas:
-                st.write("持续存在：" + "、".join(change.persistent_areas))
-        else:
-            st.caption("再完成一轮面试后即可比较薄弱项变化。")
+        change = compare_weak_areas(
+            list(progress_records[-1].tags),
+            list(progress_records[-2].tags),
+        )
+        st.caption("最近两次薄弱项变化")
+        if change.new_areas:
+            st.write("新增：" + "、".join(change.new_areas))
+        if change.resolved_areas:
+            st.write("已改善：" + "、".join(change.resolved_areas))
+        if change.persistent_areas:
+            st.write("持续存在：" + "、".join(change.persistent_areas))
+    elif progress_records:
+        current = progress_records[-1]
+        st.metric("当前表达结构参考分", f"{current.overall_score:.1f}/10")
+        st.progress(
+            min(1.0, max(0.0, current.overall_score / 10)),
+            text="完成第 2 轮面试后将显示趋势线和薄弱项变化。",
+        )
     else:
-        st.caption("暂无结构化得分趋势；完成新一轮面试后会自动生成。")
+        st.caption("暂无表达结构参考分；完成新一轮面试后会自动生成。")
 
     st.subheader("历史面试")
     sessions = list_session_files()
@@ -1356,7 +1622,21 @@ def render_growth(mode_cfg: dict) -> None:
             f"{saved.get('time', '未知时间')}  {saved_mode}  "
             f"{saved.get('interview_type', '未知模式')}"
         )
-        open_col, delete_col = st.columns([4, 1])
+        markdown_name = "_".join(
+            [
+                safe_filename_part(saved.get("started_at", "未知")),
+                safe_filename_part(saved.get("mode", "未知")),
+                safe_filename_part(saved.get("interview_type", "未知")),
+                safe_filename_part(saved.get("style", "未知")),
+            ]
+        ) + ".md"
+        markdown_path = tenant_record_dir() / markdown_name
+        markdown_content = (
+            markdown_path.read_text(encoding="utf-8")
+            if markdown_path.is_file()
+            else build_markdown_record(saved)
+        )
+        open_col, download_col, delete_col = st.columns([4, 1, 1])
         if open_col.button(label, key=f"history_{session_file.stem}", width="stretch"):
             st.session_state.messages = saved.get("messages", [])
             st.session_state.feedback = saved.get("feedback")
@@ -1386,7 +1666,9 @@ def render_growth(mode_cfg: dict) -> None:
             st.session_state.question_audio = None
             st.session_state.question_audio_error = None
             st.session_state.start_time = None
+            st.session_state.stage_started_at = None
             st.session_state.timer_alert = False
+            st.session_state.report_duration_seconds = saved.get("duration_seconds")
             st.session_state.interview_started_at = saved.get("started_at")
             st.session_state.last_record_path = None
             st.session_state.last_record_markdown = None
@@ -1398,18 +1680,37 @@ def render_growth(mode_cfg: dict) -> None:
             st.session_state.session_id = new_session_id()
             set_view("report" if saved.get("feedback") else "setup")
             st.rerun()
+        download_col.download_button(
+            "下载",
+            data=markdown_content.encode("utf-8"),
+            file_name=markdown_name,
+            mime="text/markdown",
+            key=f"download_history_{session_file.stem}",
+            width="stretch",
+        )
         if delete_col.button("删除", key=f"delete_{session_file.stem}"):
-            session_file.unlink(missing_ok=True)
-            markdown_name = "_".join(
-                [
-                    safe_filename_part(saved.get("started_at", "未知")),
-                    safe_filename_part(saved.get("mode", "未知")),
-                    safe_filename_part(saved.get("interview_type", "未知")),
-                    safe_filename_part(saved.get("style", "未知")),
-                ]
-            ) + ".md"
-            (tenant_record_dir() / markdown_name).unlink(missing_ok=True)
+            st.session_state.delete_confirm_id = session_file.stem
             st.rerun()
+        if st.session_state.get("delete_confirm_id") == session_file.stem:
+            st.warning("删除后将同时移除 JSON 会话和 Markdown 记录，且无法恢复。")
+            confirm_col, cancel_col = st.columns(2)
+            if confirm_col.button(
+                "确认删除",
+                type="primary",
+                key=f"confirm_delete_{session_file.stem}",
+                width="stretch",
+            ):
+                session_file.unlink(missing_ok=True)
+                markdown_path.unlink(missing_ok=True)
+                st.session_state.delete_confirm_id = None
+                st.rerun()
+            if cancel_col.button(
+                "取消",
+                key=f"cancel_delete_{session_file.stem}",
+                width="stretch",
+            ):
+                st.session_state.delete_confirm_id = None
+                st.rerun()
 
     with st.expander("最近一次运行的技术信息"):
         budget = st.session_state.get("model_budget")
@@ -1443,108 +1744,19 @@ def cached_rag_metrics() -> dict:
 
 
 def render_admin() -> None:
-    st.header("平台控制台")
-    st.caption("本地只读控制面：展示真实场景、模型、工具、运行轨迹和评估数据。")
-
-    registry = SCENARIO_REGISTRY
-    scenarios = registry.list_scenarios()
-    tools = TOOL_REGISTRY.list_tools()
-    quality_path = BASE_DIR / "datasets" / "quality_golden.json"
-    quality = quality_metrics(quality_path)
-    rag = cached_rag_metrics()
-
     db_path = Path(
         os.getenv("INTERVIEWLOOP_DB_PATH", BASE_DIR / "interview_loop.db")
     )
-    repository = SQLiteAgentRunRepository(db_path)
-    runs = recent_runs(repository, limit=20)
-    current_run = st.session_state.get("agent_run")
-    if current_run is not None and all(run.run_id != current_run.run_id for run in runs):
-        runs.insert(0, current_run)
-
-    overview = st.columns(4)
-    overview[0].metric("场景包", len(scenarios))
-    overview[1].metric("工具", len(tools))
-    overview[2].metric("最近 AgentRun", len(runs))
-    overview[3].metric("质量门禁", "通过" if quality["passed"] else "失败")
-
-    tabs = st.tabs(["场景", "模型路由", "工具权限", "AgentRun / Trace", "评估指标"])
-    with tabs[0]:
-        st.subheader("场景目录")
-        st.dataframe(pd.DataFrame(scenario_rows(registry)), hide_index=True)
-
-    with tabs[1]:
-        st.subheader("模型路由与预算")
-        st.dataframe(pd.DataFrame(model_profile_rows(MODEL_GATEWAY)), hide_index=True)
-        breaker = MODEL_GATEWAY._breaker_policy
-        quota = TENANT_QUOTA_STORE.quota
-        st.caption(
-            f"熔断阈值：{breaker.failure_threshold} 次  "
-            f"冷却：{breaker.cooldown_seconds:g} 秒"
-        )
-        st.caption(
-            f"租户额度：{quota.max_tokens:,} Token / {quota.max_cost:.2f}  "
-            f"窗口 {quota.window_seconds:g} 秒"
-        )
-        st.caption(
-            f"当前租户用量快照：{TENANT_QUOTA_STORE.snapshot(current_tenant_id())}"
-        )
-
-    with tabs[2]:
-        st.subheader("工具目录与权限")
-        st.dataframe(pd.DataFrame(tool_rows(TOOL_REGISTRY)), hide_index=True)
-
-    with tabs[3]:
-        st.subheader("最近 AgentRun")
-        if not runs:
-            st.caption("暂无 AgentRun。可通过 API 或开始一次面试生成。")
-        else:
-            st.dataframe(pd.DataFrame(run_rows(runs)), hide_index=True)
-            selected_id = st.selectbox(
-                "查看运行轨迹",
-                [run.run_id for run in runs],
-                key="admin_run_selector",
-            )
-            selected_run = next(run for run in runs if run.run_id == selected_id)
-            st.caption(
-                f"Trace ID：{selected_run.trace_id}  状态：{selected_run.status.value}"
-            )
-            if selected_run.events:
-                st.dataframe(
-                    pd.DataFrame(
-                        [
-                            {
-                                "事件": event.event_type,
-                                "节点": event.node,
-                                "耗时ms": event.duration_ms,
-                                "时间": event.created_at,
-                                "Payload": event.payload,
-                            }
-                            for event in selected_run.events
-                        ]
-                    ),
-                    hide_index=True,
-                )
-            else:
-                st.caption("该 Run 暂无事件。")
-
-    with tabs[4]:
-        st.subheader("RAG 检索指标")
-        rag_cols = st.columns(4)
-        rag_cols[0].metric("Precision@K", f"{rag['precision']:.3f}")
-        rag_cols[1].metric("Recall@K", f"{rag['recall']:.3f}")
-        rag_cols[2].metric("MRR", f"{rag['mrr']:.3f}")
-        rag_cols[3].metric("Hit Rate", f"{rag['hit_rate']:.3f}")
-        st.caption(f"黄金用例：{rag['case_count']}  阈值：{rag['thresholds']}")
-        st.subheader("模型输出质量校准")
-        quality_cols = st.columns(3)
-        quality_cols[0].metric("加权 MAE", f"{quality['weighted_mae']:.3f}")
-        quality_cols[1].metric("最大用例误差", f"{quality['max_case_mae']:.3f}")
-        quality_cols[2].metric(
-            "人工复核",
-            "通过" if quality["human_review_passed"] else "失败",
-        )
-        st.caption(f"质量阈值：{quality['thresholds']}")
+    render_admin_view(
+        registry=SCENARIO_REGISTRY,
+        tool_registry=TOOL_REGISTRY,
+        model_gateway=MODEL_GATEWAY,
+        tenant_quota_store=TENANT_QUOTA_STORE,
+        base_dir=BASE_DIR,
+        db_path=db_path,
+        rag_metrics=cached_rag_metrics(),
+        tenant_id=current_tenant_id(),
+    )
 
 
 mode_cfg = MODE_CONFIG[st.session_state.mode]

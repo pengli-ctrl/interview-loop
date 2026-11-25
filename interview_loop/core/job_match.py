@@ -93,8 +93,6 @@ def validate_job_description(text: str, catalog: SkillCatalog) -> str:
     value = str(text or "").strip()
     if len(value) < 40:
         raise JobDescriptionError("岗位 JD 过短，请至少提供职责、技能或任职要求")
-    if not extract_skills(value, catalog):
-        raise JobDescriptionError("岗位 JD 中未识别到受支持的技能关键词")
     return value
 
 
@@ -112,7 +110,9 @@ def assess_job_match(
     missing = tuple(skill for skill in jd_skills if skill not in resume_set)
     bonus = tuple(skill for skill in resume_skills if skill not in jd_set)
     score = round(len(matched) / len(jd_skills) * 100) if jd_skills else 0
-    if score >= 70:
+    if not jd_skills:
+        level = "unscored"
+    elif score >= 70:
         level = "good"
     elif score >= 40:
         level = "partial"
@@ -120,6 +120,10 @@ def assess_job_match(
         level = "poor"
 
     risks = []
+    if not jd_skills:
+        risks.append(
+            "当前技能目录未覆盖该 JD 的技术关键词，岗位匹配本次不评分，但不阻断面试。"
+        )
     if not str(resume_text or "").strip():
         risks.append("尚未提供简历，无法验证岗位要求")
     elif missing:
@@ -129,7 +133,9 @@ def assess_job_match(
     if str(resume_text or "").strip() and not re.search(r"\d", str(resume_text)):
         risks.append("简历缺少量化结果，如性能提升、成本下降或业务指标")
 
-    if missing:
+    if not jd_skills:
+        focus = ("补充岗位中的技术栈、工具和职责描述，以便下次生成可评分的匹配结果",)
+    elif missing:
         focus = tuple(f"准备 {skill} 的实践案例和取舍说明" for skill in missing[:3])
     else:
         focus = tuple(

@@ -75,9 +75,11 @@ def build_markdown_record(data: dict) -> str:
     if structured:
         lines.extend(
             [
-                "## 结构化评分",
+                "## 表达结构参考评估",
                 "",
-                f"综合得分：{structured.get('overall_score', '未记录')}/10",
+                f"表达结构参考分（启发式）：{structured.get('overall_score', '未记录')}/10",
+                "",
+                "该分数由回答长度、结构和关键词规则计算，仅用于训练反馈。",
                 "",
                 "| 维度 | 得分 | 权重 |",
                 "|---|---:|---:|",

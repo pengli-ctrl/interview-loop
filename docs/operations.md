@@ -98,8 +98,9 @@ python scripts/capture_demo.py
 脚本会：
 
 - 使用 `scripts/demo_app.py` 启动隔离的 Demo 服务；
+- 完成两场面试、每场三轮回答，确保复盘中存在真实问答和多阶段数据；
 - 把数据库和会话写入 `demo/.capture/`；
-- 在 8502 捕获候选人全流程；
+- 在 8502 捕获候选人全流程，并等待 Streamlit 空闲、无骨架屏、无 Deploy/Stop；
 - 在 8503 捕获管理控制台；
 - 输出 `demo/screenshots/*.png` 和 `demo/interview-loop.gif`；
 - 结束后停止服务，不修改真实训练数据。
@@ -164,7 +165,8 @@ X-Permissions: record:write,audio:read
 |---|---|---|
 | `interview_sessions/` | 本地会话 JSON | 否 |
 | `面试记录/` | Markdown 面试记录 | 否 |
-| `weak_stats_mode.json` | 弱项统计 | 否 |
+| `interview_sessions/weak_stats.json` | 当前租户弱项统计 | 否 |
+| `interview_sessions/tenants/<tenant>/weak_stats.json` | 非本地租户弱项统计 | 否 |
 | `interview_loop.db` | 本地 AgentRun SQLite | 否 |
 | `demo/.capture/` | 捕获脚本临时数据 | 否 |
 | `datasets/` | 黄金测试数据 | 是 |
@@ -185,6 +187,8 @@ pytest -q
 python scripts/evaluate_rag.py
 python scripts/evaluate_quality.py
 ```
+
+CI 还会运行 `scripts/capture_demo.py`，对完整候选人流程和管理页做 Playwright 截图与断言。
 
 Streamlit 健康检查：
 

@@ -85,7 +85,7 @@ class InterviewReport:
     action_plan: tuple[ActionItem, ...]
     evidence: tuple[EvidenceItem, ...]
     summary: str
-    source: str = "heuristic-v1"
+    source: str = "structure-heuristic-v1"
 
     def to_dict(self) -> dict:
         return {
@@ -109,7 +109,7 @@ class InterviewReport:
             action_plan=tuple(ActionItem(**item) for item in data.get("action_plan", [])),
             evidence=tuple(EvidenceItem(**item) for item in data.get("evidence", [])),
             summary=str(data.get("summary", "")),
-            source=str(data.get("source", "heuristic-v1")),
+            source=str(data.get("source", "structure-heuristic-v1")),
         )
 
 
@@ -256,7 +256,7 @@ def build_interview_report(
         risks=risks,
         action_plan=tuple(actions),
         evidence=tuple(evidence),
-        summary=f"本轮综合得分 {overall}/10，优势维度是{strongest}，优先改进{weakest}。共记录 {len(turns)} 轮回答。",
+        summary=f"表达结构参考分为 {overall}/10（基于回答长度、结构和关键词的启发式规则，仅用于训练反馈）。优势维度是{strongest}，优先改进{weakest}。共记录 {len(turns)} 轮回答。",
     )
 
 

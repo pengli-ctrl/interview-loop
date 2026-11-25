@@ -1,6 +1,7 @@
 from interview_loop.core.flow import (
     FlowAction,
     decide_next_step,
+    is_explicit_end_request,
     should_generate_followup,
 )
 
@@ -43,3 +44,9 @@ def test_decide_next_stage():
 def test_decide_complete():
     decision = decide_next_step(main_count=1, main_index=0, followup_count=0, max_followups=0, answer=LONG_ANSWER, is_last_stage=True)
     assert decision.action is FlowAction.COMPLETE
+
+
+def test_explicit_end_request_requires_control_phrase():
+    assert is_explicit_end_request("结束面试")
+    assert is_explicit_end_request("请结束本轮面试。")
+    assert not is_explicit_end_request("我之前结束面试后会复盘一下。")

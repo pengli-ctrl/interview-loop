@@ -63,8 +63,8 @@ def test_markdown_handles_unanswered_question():
 
 def test_markdown_includes_review_and_tags():
     markdown = build_markdown_record(_record_data())
-    assert "## 结构化评分" in markdown
-    assert "综合得分：7.2/10" in markdown
+    assert "## 表达结构参考评估" in markdown
+    assert "表达结构参考分（启发式）：7.2/10" in markdown
     assert "## 面试复盘报告" in markdown
     assert "- RAG" in markdown
 

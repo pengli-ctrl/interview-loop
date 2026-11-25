@@ -35,6 +35,9 @@ def test_structured_report_contains_scores_evidence_and_actions():
         job_match={"missing_skills": ["Kubernetes"]},
     )
     assert 0 <= report.overall_score <= 10
+    assert report.source == "structure-heuristic-v1"
+    assert "表达结构参考分" in report.summary
+    assert "启发式" in report.summary
     assert len(report.dimensions) == 4
     assert sum(item.weight for item in report.dimensions) == 1.0
     assert report.strengths

@@ -40,7 +40,8 @@ Streamlit UI ───────────────┐
 
 | 目录 | 职责 | 关键约束 |
 |---|---|---|
-| `app.py` | Streamlit 五视图产品壳、会话状态和用例编排 | 不承载可复用领域算法 |
+| `app.py` | Streamlit 入口、会话状态和用例编排 | 页面展示委托给 `interview_loop/ui/` |
+| `interview_loop/ui/` | 通用组件、复盘页和管理页展示 | 不承载领域规则或外部 Provider 调用 |
 | `interview_loop/core/` | 状态机、追问判定、问题生成、复盘、岗位匹配 | 纯逻辑优先，可 pytest |
 | `interview_loop/scenarios/` | 场景模型、JSON 配置包、校验和注册表 | UI 与 API 共用同一配置 |
 | `interview_loop/services/` | LLM、ASR、TTS Provider 适配 | 不直接操作页面或数据库 |
@@ -65,7 +66,7 @@ Streamlit UI ───────────────┐
   → 候选人使用语音或文字回答
   → 追问判定 / 下一个主问题 / 下一阶段
   → 全部阶段完成或手动结束
-  → 确定性结构化报告 + 模型复盘
+  → 表达结构参考分 + 定性面试官总评
   → 保存 JSON 会话与 Markdown 记录
   → 更新弱项统计和成长趋势
 ```
@@ -78,7 +79,7 @@ Streamlit UI ───────────────┐
 |---|---|---|
 | 会话 JSON | `interview_sessions/` | 每次面试的轮次、阶段、问答和报告 |
 | Markdown 记录 | `面试记录/` | 可下载的完整训练记录 |
-| 弱项统计 | `weak_stats_mode.json` | 按面试轮次聚合薄弱标签 |
+| 弱项统计 | `interview_sessions/weak_stats.json` | 按租户、按面试轮次聚合薄弱标签 |
 | AgentRun | `interview_loop.db` 或 `INTERVIEWLOOP_DB_PATH` | SQLite 中的 Run、事件、幂等和审计数据 |
 | 演示隔离数据 | `demo/.capture/` | 捕获脚本专用，不进入版本控制 |
 
@@ -114,7 +115,9 @@ Streamlit UI ───────────────┐
 
 - **可控性**：阶段和题目预算由配置决定，模型不能任意跳阶段。
 - **可降级**：向量模型不可用时回退 BM25；Demo 模式不依赖外部 Provider。
-- **可测试**：状态机、评分、导出、权限、工具运行时和 API 均有 pytest 覆盖。
+- **可测试**：状态机、参考分、导出、权限、工具运行时和 API 均有 pytest 覆盖。
+- **可恢复**：每轮回答后保存租户级草稿，重新进入时可恢复未完成面试。
+- **可信边界**：启发式参考分与定性总评分开展示，不输出两套竞争性数字分数。
 - **可观测**：AgentRun 记录模型、工具、阶段、错误和耗时事件。
 - **成本可控**：模型网关支持路由、重试、熔断、单轮预算和租户额度。
 - **隐私优先**：显式同意、PII 脱敏、保留策略、导出和删除均有实现边界。

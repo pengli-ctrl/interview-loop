@@ -1,4 +1,9 @@
-from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
+from interview_loop.core.review import (
+    build_review_prompt,
+    build_tag_prompt,
+    parse_tags,
+    strip_numeric_scores,
+)
 
 
 def test_parse_valid_tags():
@@ -18,3 +23,11 @@ def test_review_and_tag_prompts_contain_context():
     tags = build_tag_prompt("不足：RAG", ["RAG", "Temporal"])
     assert "技术一面" in review and "回答" in review
     assert "RAG" in tags and "Temporal" in tags
+
+
+def test_strip_numeric_scores_removes_duplicate_score_claims():
+    review = "总评：结构清晰。\n- 评分：8/10\n综合得分 9/10，建议继续练习。"
+    cleaned = strip_numeric_scores(review)
+    assert "8/10" not in cleaned
+    assert "9/10" not in cleaned
+    assert "结构清晰" in cleaned

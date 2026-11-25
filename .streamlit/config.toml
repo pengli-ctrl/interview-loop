@@ -24,3 +24,6 @@ borderColor = "#E2E8F0"
 
 [browser]
 gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"

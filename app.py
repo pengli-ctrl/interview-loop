@@ -2,7 +2,6 @@ import hashlib
 import json
 import time
 from pathlib import Path
-from uuid import uuid4
 
 import pandas as pd
 import streamlit as st
@@ -19,6 +18,14 @@ from interview_loop.services.llm import llm_call
 from interview_loop.services.tts import text2audio
 from interview_loop.rag.resume import extract_resume_text
 from interview_loop.rag.retriever import build_rag, query_resume
+from interview_loop.export.markdown import save_markdown_record
+from interview_loop.storage.session_store import (
+    build_session_data,
+    list_session_files as _list_session_files,
+    new_session_id,
+    save_session_json,
+)
+from interview_loop.storage.stats_store import load_stats, save_stats
 from interview_loop.config import (
     GLOBAL_STATS_PATH,
     MODE_CONFIG,
@@ -30,144 +37,12 @@ from interview_loop.config import (
 
 
 # ===================== 持久化与初始化 =====================
-def new_session_id() -> str:
-    return f"session_{int(time.time() * 1000)}"
-
-
 def list_session_files() -> list[Path]:
-    try:
-        return sorted(SAVE_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    except OSError:
-        return []
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-    temp_path.write_text(text, encoding="utf-8")
-    temp_path.replace(path)
-
-
-def load_global_weak_stats() -> dict:
-    empty_stats = {mode: {} for mode in MODE_LIST}
-    if not GLOBAL_STATS_PATH.exists():
-        return empty_stats
-
-    try:
-        raw = json.loads(GLOBAL_STATS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        st.warning(f"薄弱统计文件损坏，已使用空统计：{exc}")
-        return empty_stats
-
-    if not isinstance(raw, dict):
-        return empty_stats
-
-    stats = {}
-    for mode in MODE_LIST:
-        mode_stats = raw.get(mode, {})
-        if not isinstance(mode_stats, dict):
-            mode_stats = {}
-        cleaned = {}
-        for tag, count in mode_stats.items():
-            try:
-                cleaned[str(tag)] = max(0, int(count))
-            except (TypeError, ValueError):
-                continue
-        stats[mode] = cleaned
-    return stats
+    return _list_session_files(SAVE_DIR)
 
 
 def save_global_weak_stats(stats: dict) -> None:
-    _atomic_write_text(
-        GLOBAL_STATS_PATH,
-        json.dumps(stats, ensure_ascii=False, indent=2),
-    )
-
-
-def _safe_filename_part(value: str) -> str:
-    invalid = '<>:"/\\|?*'
-    cleaned = "".join("_" if char in invalid or ord(char) < 32 else char for char in str(value))
-    return cleaned.strip(" .") or "未命名"
-
-
-def _format_duration(seconds: int | None) -> str:
-    if seconds is None:
-        return "未记录"
-    seconds = max(0, int(seconds))
-    hours, remainder = divmod(seconds, 3600)
-    minutes, secs = divmod(remainder, 60)
-    if hours:
-        return f"{hours}小时{minutes}分{secs}秒"
-    if minutes:
-        return f"{minutes}分{secs}秒"
-    return f"{secs}秒"
-
-
-def build_markdown_record(data: dict) -> str:
-    lines = [
-        "# 面试记录",
-        "",
-        f"- 面试开始时间：{data.get('started_at', '未知')}",
-        f"- 面试结束时间：{data.get('completed_at', '未知')}",
-        f"- 面试轮次：{data.get('mode', '未知')}",
-        f"- 面试模式：{data.get('interview_type', '未知')}",
-        f"- 面试风格：{data.get('style', '未知')}",
-        f"- 面试时长：{_format_duration(data.get('duration_seconds'))}",
-        f"- 会话 ID：{data.get('session_id', '未知')}",
-        "",
-        "## 面试对话",
-        "",
-    ]
-
-    turns = []
-    pending_question = ""
-    for message in data.get("messages", []):
-        role = message.get("role")
-        content = str(message.get("content", "")).strip()
-        if role == "interviewer":
-            if pending_question:
-                turns.append((pending_question, ""))
-            pending_question = content
-        elif role == "candidate":
-            turns.append((pending_question, content))
-            pending_question = ""
-    if pending_question:
-        turns.append((pending_question, ""))
-
-    if not turns:
-        lines.extend(["暂无对话记录。", ""])
-    for index, (question, answer) in enumerate(turns, start=1):
-        lines.extend(
-            [
-                f"### 第 {index} 题",
-                "",
-                "**面试官：**",
-                "",
-                question or "（未记录）",
-                "",
-                "**候选人：**",
-                "",
-                answer or "（未回答）",
-                "",
-            ]
-        )
-
-    lines.extend(
-        [
-            "## 面试复盘报告",
-            "",
-            str(data.get("feedback") or "暂无复盘报告").strip(),
-            "",
-            "## 薄弱标签",
-            "",
-        ]
-    )
-    tags = data.get("tags") or []
-    if tags:
-        lines.extend(f"- {tag}" for tag in tags)
-    else:
-        lines.append("暂无标签")
-    lines.append("")
-    return "\n".join(lines)
+    save_stats(GLOBAL_STATS_PATH, stats)
 
 
 def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> Path:
@@ -178,33 +53,20 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
     if st.session_state.get("start_time") is not None:
         duration_seconds = int(max(0, time.time() - st.session_state.start_time))
 
-    data = {
-        "time": started_at.replace("_", " "),
-        "started_at": started_at,
-        "completed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "duration_seconds": duration_seconds,
-        "session_id": st.session_state.session_id,
-        "mode": mode,
-        "interview_type": st.session_state.interview_type,
-        "style": st.session_state.style,
-        "messages": messages,
-        "feedback": feedback,
-        "tags": tags,
-    }
-    json_path = SAVE_DIR / f"{st.session_state.session_id}.json"
-    _atomic_write_text(json_path, json.dumps(data, ensure_ascii=False, indent=2))
-
-    filename = "_".join(
-        [
-            _safe_filename_part(started_at),
-            _safe_filename_part(mode),
-            _safe_filename_part(st.session_state.interview_type),
-            _safe_filename_part(st.session_state.style),
-        ]
-    ) + ".md"
-    markdown_path = RECORD_DIR / filename
-    markdown = build_markdown_record(data)
-    _atomic_write_text(markdown_path, markdown)
+    data = build_session_data(
+        session_id=st.session_state.session_id,
+        mode=mode,
+        interview_type=st.session_state.interview_type,
+        style=st.session_state.style,
+        messages=messages,
+        feedback=feedback,
+        tags=tags,
+        started_at=started_at,
+        completed_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+        duration_seconds=duration_seconds,
+    )
+    json_path = save_session_json(SAVE_DIR, data)
+    markdown_path, markdown = save_markdown_record(RECORD_DIR, data)
     st.session_state.last_record_path = str(markdown_path)
     st.session_state.last_record_markdown = markdown
     st.session_state.session_list = list_session_files()
@@ -212,6 +74,10 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
 
 
 # 初始化 session state
+_initial_weak_stats, _weak_stats_error = load_stats(GLOBAL_STATS_PATH, MODE_LIST)
+if _weak_stats_error:
+    st.warning(f"薄弱统计文件损坏，已使用空统计：{_weak_stats_error}")
+
 defaults = {
     "mode": MODE_LIST[0],
     "interview_type": "闯关全真面试",
@@ -231,7 +97,7 @@ defaults = {
     "question_audio": None,
     "question_audio_error": None,
     "last_audio_digest": None,
-    "global_weak_stats": load_global_weak_stats(),
+    "global_weak_stats": _initial_weak_stats,
     "start_time": None,
     "timer_alert": False,
     "interview_started_at": None,

@@ -26,10 +26,12 @@ from interview_loop.core.question_engine import (
 )
 from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
 from interview_loop.export.markdown import save_markdown_record
+from interview_loop.platform.agent_run import AgentRun
+from interview_loop.platform.model_gateway import ModelGateway
+from interview_loop.platform.tool_registry import ToolRegistry, ToolSpec
 from interview_loop.rag.resume import extract_resume_text
 from interview_loop.rag.retriever import build_rag, query_resume
 from interview_loop.services.asr import audio2text
-from interview_loop.services.llm import llm_call
 from interview_loop.services.tts import text2audio
 from interview_loop.storage.session_store import (
     build_session_data,
@@ -40,6 +42,17 @@ from interview_loop.storage.session_store import (
     list_session_files as _list_session_files,
 )
 from interview_loop.storage.stats_store import load_stats, save_stats
+
+MODEL_GATEWAY = ModelGateway()
+TOOL_REGISTRY = ToolRegistry()
+TOOL_REGISTRY.register(
+    ToolSpec(
+        name="record.export",
+        description="Export a complete interview session as Markdown.",
+        handler=save_markdown_record,
+        version="v1",
+    )
+)
 
 
 # ===================== 持久化与初始化 =====================
@@ -71,8 +84,13 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
         completed_at=time.strftime("%Y-%m-%d %H:%M:%S"),
         duration_seconds=duration_seconds,
     )
+    agent_run = st.session_state.get("agent_run")
+    if agent_run is not None:
+        data["agent_run"] = agent_run.to_dict()
     json_path = save_session_json(SAVE_DIR, data)
-    markdown_path, markdown = save_markdown_record(RECORD_DIR, data)
+    markdown_path, markdown = TOOL_REGISTRY.execute(
+        "record.export", record_dir=RECORD_DIR, data=data
+    ).output
     st.session_state.last_record_path = str(markdown_path)
     st.session_state.last_record_markdown = markdown
     st.session_state.session_list = list_session_files()
@@ -109,6 +127,7 @@ defaults = {
     "interview_started_at": None,
     "last_record_path": None,
     "last_record_markdown": None,
+    "agent_run": None,
     "session_list": list_session_files(),
 }
 for key, value in defaults.items():
@@ -127,6 +146,7 @@ if st.session_state.get("interview_flow_version") != 4:
     st.session_state.interview_started_at = None
     st.session_state.last_record_path = None
     st.session_state.last_record_markdown = None
+    st.session_state.agent_run = None
     st.session_state.session_id = new_session_id()
     st.session_state.interview_flow_version = 4
 
@@ -146,6 +166,7 @@ def reset_interview_state() -> None:
     st.session_state.interview_started_at = None
     st.session_state.last_record_path = None
     st.session_state.last_record_markdown = None
+    st.session_state.agent_run = None
 # ===================== 简历解析与 RAG =====================
 def set_question_audio(question: str) -> None:
     try:
@@ -157,7 +178,10 @@ def set_question_audio(question: str) -> None:
 # ===================== 面试业务 =====================
 def extract_tags(review_text: str, valid_tags: list[str]) -> list[str]:
     try:
-        raw = llm_call("", build_tag_prompt(review_text, valid_tags)).strip()
+        result = MODEL_GATEWAY.complete(
+            "tagging", "", build_tag_prompt(review_text, valid_tags)
+        )
+        raw = result.content.strip()
         return parse_tags(raw, valid_tags)
     except Exception:
         return []
@@ -194,9 +218,13 @@ def get_stage_question(
         previous_question=previous_question,
         last_answer=last_answer,
     )
-    question = llm_call(prompt.system_prompt, "请给出当前这一题")
+    result = MODEL_GATEWAY.complete("question", prompt.system_prompt, "请给出当前这一题")
+    question = result.content
     if previous_question and last_answer and questions_too_similar(question, previous_question):
-        question = llm_call(build_repair_prompt(prompt.system_prompt), "请重新给出一个不同的问题")
+        repair_result = MODEL_GATEWAY.complete(
+            "question", build_repair_prompt(prompt.system_prompt), "请重新给出一个不同的问题"
+        )
+        question = repair_result.content
     if previous_question and last_answer and questions_too_similar(question, previous_question):
         question = build_similarity_fallback(prompt.current_topic, last_answer)
     return question
@@ -208,7 +236,7 @@ def get_weak_question(mode: str) -> str:
         return MODE_CONFIG[mode]["stage_list"][0]["pool"][0]
     top_tag = max(stats.items(), key=lambda item: item[1])[0]
     prompt = f"【{mode}】薄弱点：{top_tag}，生成一道面试题，只输出题目。"
-    return llm_call("你是面试出题专家", prompt)
+    return MODEL_GATEWAY.complete("question", "你是面试出题专家", prompt).content
 
 
 def generate_review(mode_cfg: dict) -> bool:
@@ -224,12 +252,15 @@ def generate_review(mode_cfg: dict) -> bool:
         messages=st.session_state.messages,
     )
     try:
-        feedback = llm_call(reviewer_prompt, "")
+        feedback = MODEL_GATEWAY.complete("review", reviewer_prompt, "").content
     except Exception as exc:
         st.error(str(exc))
         return False
 
     st.session_state.feedback = feedback
+    agent_run = st.session_state.get("agent_run")
+    if agent_run is not None:
+        agent_run.complete("interview.review")
     tags = extract_tags(feedback, tag_list)
     try:
         update_global_stats(st.session_state.mode, tags)
@@ -247,6 +278,13 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
         {"role": "interviewer", "content": st.session_state.current_question}
     )
     st.session_state.messages.append({"role": "candidate", "content": ans_text})
+    agent_run = st.session_state.get("agent_run")
+    if agent_run is not None:
+        agent_run.record_event(
+            "answer.received",
+            "interview.answer",
+            {"answer_length": len(ans_text)},
+        )
 
     if "结束面试" in ans_text:
         return generate_review(mode_cfg)
@@ -336,6 +374,12 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
             return False
 
     st.session_state.current_question = question
+    if agent_run is not None:
+        agent_run.record_event(
+            "question.generated",
+            "interview.question",
+            {"question": question},
+        )
     set_question_audio(question)
     return True
 
@@ -530,6 +574,20 @@ with col_main:
                         "%Y-%m-%d_%H-%M-%S"
                     )
                     st.session_state.current_question = question
+                    agent_run = AgentRun(
+                        metadata={
+                            "mode": st.session_state.mode,
+                            "interview_type": st.session_state.interview_type,
+                            "style": st.session_state.style,
+                        }
+                    )
+                    agent_run.start("interview.start")
+                    agent_run.record_event(
+                        "question.generated",
+                        "interview.question",
+                        {"question": question},
+                    )
+                    st.session_state.agent_run = agent_run
                     set_question_audio(question)
                     st.rerun()
     else:

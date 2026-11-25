@@ -56,6 +56,10 @@ interview_loop/
     stats_store.py
   export/
     markdown.py
+  platform/
+    agent_run.py
+    model_gateway.py
+    tool_registry.py
 ```
 
 模块边界原则：
@@ -65,8 +69,9 @@ interview_loop/
 3. `rag` 负责简历解析和检索。
 4. `storage` 负责会话和统计持久化。
 5. `export` 负责 Markdown 生成。
-6. `app.py` 负责 Streamlit UI 和 session state 编排。
-7. 纯逻辑模块不依赖真实网络调用，便于 pytest 和 CI。
+6. `platform` 负责 AgentRun、ModelGateway 和 ToolRegistry。
+7. `app.py` 负责 Streamlit UI 和 session state 编排。
+8. 纯逻辑模块不依赖真实网络调用，便于 pytest 和 CI。
 
 ## 后续演进方向
 

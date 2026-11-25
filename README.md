@@ -141,6 +141,15 @@ http://localhost:8501
 
 这些文件已默认加入 `.gitignore`，不应提交到公开仓库。
 
+## Architecture Decisions
+
+- [ADR-001: Deterministic workflow](docs/adr/0001-deterministic-workflow-vs-autonomous-agent.md)
+- [ADR-002: Hybrid RAG with BM25 fallback](docs/adr/0002-hybrid-rag-with-bm25-fallback.md)
+- [ADR-003: Model Gateway](docs/adr/0003-model-gateway.md)
+- [ADR-004: Modular monolith first](docs/adr/0004-modular-monolith-first.md)
+- [ADR-005: Tenant isolation and tool permissions](docs/adr/0005-tenancy-pii-and-tool-permissions.md)
+- [ADR-006: Trace, evaluation and regression](docs/adr/0006-trace-evaluation-and-regression.md)
+
 ## 当前局限
 
 - 当前是单机 MVP，没有账号和多租户数据隔离。

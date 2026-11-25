@@ -4,7 +4,6 @@ import io
 import json
 import os
 import time
-from difflib import SequenceMatcher
 from pathlib import Path
 from uuid import uuid4
 
@@ -17,6 +16,8 @@ import streamlit as st
 
 st.set_page_config(page_title="全真大厂面试模拟器", layout="wide")
 
+from interview_loop.core.flow import FlowAction, decide_next_step
+from interview_loop.core.question_engine import questions_too_similar
 from interview_loop.config import (
     GLOBAL_STATS_PATH,
     LLM_API_KEY,
@@ -624,29 +625,6 @@ def update_global_stats(mode: str, tags: list[str]) -> None:
     save_global_weak_stats(st.session_state.global_weak_stats)
 
 
-def _questions_too_similar(new_question: str, previous_question: str) -> bool:
-    def normalize(value: str) -> str:
-        return "".join(char.lower() for char in value if char.isalnum())
-
-    left = normalize(new_question)
-    right = normalize(previous_question)
-    if not left or not right:
-        return False
-    if left == right or left in right or right in left:
-        return True
-    return SequenceMatcher(None, left, right).ratio() >= 0.82
-
-
-def should_generate_followup(answer: str, stage: dict, followup_count: int) -> bool:
-    max_followups = max(0, int(stage.get("max_followups", 0)))
-    if followup_count >= max_followups:
-        return False
-    cleaned = answer.strip()
-    if len(cleaned) < 40:
-        return False
-    return not any(keyword in cleaned for keyword in ("不知道", "没做过", "跳过", "不了解", "不会"))
-
-
 def get_stage_question(
     mode: str,
     stage_idx: int,
@@ -686,11 +664,11 @@ def get_stage_question(
 上一题：{previous_question or "无"}
 候选人回答：{last_answer or "无"}"""
     question = llm_call(system_prompt, "请给出当前这一题")
-    if previous_question and last_answer and _questions_too_similar(question, previous_question):
+    if previous_question and last_answer and questions_too_similar(question, previous_question):
         repair_prompt = system_prompt + """
 你上一次生成的问题与上一题过于相似。请重新生成一个不同的题目；如果是追问，必须针对候选人回答中的具体内容。"""
         question = llm_call(repair_prompt, "请重新给出一个不同的问题")
-    if previous_question and last_answer and _questions_too_similar(question, previous_question):
+    if previous_question and last_answer and questions_too_similar(question, previous_question):
         answer_excerpt = last_answer.strip().replace("\n", " ")[:60]
         question = (
             f"你刚才提到“{answer_excerpt}”，请继续围绕当前主问题“{current_topic}”"
@@ -753,22 +731,27 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
 
     ctx = rag_query(f"{st.session_state.current_question}\n{ans_text}")
     if st.session_state.interview_type == "闯关全真面试":
-        current_stage = mode_cfg["stage_list"][st.session_state.current_stage_idx]
+        current_stage_idx = st.session_state.current_stage_idx
+        current_stage = mode_cfg["stage_list"][current_stage_idx]
         question_plan = current_stage.get("question_plan") or current_stage["pool"]
-        main_total = max(1, len(question_plan))
-        main_index = st.session_state.stage_main_index
-        followup_count = st.session_state.stage_followup_count
+        decision = decide_next_step(
+            main_count=len(question_plan),
+            main_index=st.session_state.stage_main_index,
+            followup_count=st.session_state.stage_followup_count,
+            max_followups=int(current_stage.get("max_followups", 0)),
+            answer=ans_text,
+            is_last_stage=current_stage_idx == len(mode_cfg["stage_list"]) - 1,
+        )
 
-        if should_generate_followup(ans_text, current_stage, followup_count):
-            next_followup = followup_count + 1
+        if decision.action is FlowAction.FOLLOW_UP:
             try:
                 question = get_stage_question(
                     st.session_state.mode,
-                    st.session_state.current_stage_idx,
+                    current_stage_idx,
                     ctx,
                     st.session_state.global_weak_stats[st.session_state.mode],
-                    main_index,
-                    next_followup,
+                    decision.main_index,
+                    decision.followup_count,
                     True,
                     previous_question=st.session_state.current_question,
                     last_answer=ans_text,
@@ -776,50 +759,50 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
             except Exception as exc:
                 st.error(str(exc))
                 return False
-            st.session_state.stage_followup_count = next_followup
+            st.session_state.stage_followup_count = decision.followup_count
+        elif decision.action is FlowAction.NEXT_MAIN:
+            try:
+                question = get_stage_question(
+                    st.session_state.mode,
+                    current_stage_idx,
+                    ctx,
+                    st.session_state.global_weak_stats[st.session_state.mode],
+                    decision.main_index,
+                    0,
+                    False,
+                    previous_question=st.session_state.current_question,
+                    last_answer=ans_text,
+                )
+            except Exception as exc:
+                st.error(str(exc))
+                return False
+            st.session_state.stage_main_index = decision.main_index
+            st.session_state.stage_followup_count = 0
+        elif decision.action is FlowAction.NEXT_STAGE:
+            next_stage_idx = current_stage_idx + 1
+            try:
+                question = get_stage_question(
+                    st.session_state.mode,
+                    next_stage_idx,
+                    ctx,
+                    st.session_state.global_weak_stats[st.session_state.mode],
+                    0,
+                    0,
+                    False,
+                    previous_question=st.session_state.current_question,
+                    last_answer=ans_text,
+                )
+            except Exception as exc:
+                st.error(str(exc))
+                return False
+            st.session_state.current_stage_idx = next_stage_idx
+            st.session_state.stage_main_index = 0
+            st.session_state.stage_followup_count = 0
         else:
-            next_main_index = main_index + 1
-            if next_main_index < main_total:
-                try:
-                    question = get_stage_question(
-                        st.session_state.mode,
-                        st.session_state.current_stage_idx,
-                        ctx,
-                        st.session_state.global_weak_stats[st.session_state.mode],
-                        next_main_index,
-                        0,
-                        False,
-                        previous_question=st.session_state.current_question,
-                        last_answer=ans_text,
-                    )
-                except Exception as exc:
-                    st.error(str(exc))
-                    return False
-                st.session_state.stage_main_index = next_main_index
-                st.session_state.stage_followup_count = 0
-            else:
-                next_stage_idx = st.session_state.current_stage_idx + 1
-                if next_stage_idx >= len(mode_cfg["stage_list"]):
-                    question = "本次面试所有阶段完成，你可以说【结束面试】或点击 Finish 生成复盘。"
-                else:
-                    try:
-                        question = get_stage_question(
-                            st.session_state.mode,
-                            next_stage_idx,
-                            ctx,
-                            st.session_state.global_weak_stats[st.session_state.mode],
-                            0,
-                            0,
-                            False,
-                            previous_question=st.session_state.current_question,
-                            last_answer=ans_text,
-                        )
-                    except Exception as exc:
-                        st.error(str(exc))
-                        return False
-                st.session_state.current_stage_idx = next_stage_idx
-                st.session_state.stage_main_index = 0
-                st.session_state.stage_followup_count = 0
+            question = "本次面试所有阶段完成，你可以说【结束面试】或点击 Finish 生成复盘。"
+            st.session_state.current_stage_idx = len(mode_cfg["stage_list"])
+            st.session_state.stage_main_index = 0
+            st.session_state.stage_followup_count = 0
     else:
         try:
             question = get_weak_question(st.session_state.mode)

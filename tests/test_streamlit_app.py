@@ -6,7 +6,7 @@ import interview_loop.config as config
 from interview_loop.evaluation.replay import replay_agent_run
 
 
-def test_demo_interview_starts_and_advances(monkeypatch, tmp_path):
+def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "DEMO_MODE", True)
     monkeypatch.setattr(config, "SAVE_DIR", tmp_path / "sessions")
     monkeypatch.setattr(config, "RECORD_DIR", tmp_path / "records")
@@ -21,11 +21,32 @@ def test_demo_interview_starts_and_advances(monkeypatch, tmp_path):
     app_path = Path(__file__).resolve().parents[1] / "app.py"
     at = AppTest.from_file(str(app_path), default_timeout=30).run()
     assert not at.exception
+    assert at.session_state["current_view"] == "dashboard"
 
-    at.checkbox(key="consent_checkbox").check().run()
+    navigation = at.get_by_key(f"main_navigation_{at.session_state['nav_version']}")
+    assert navigation.options == [
+        "工作台",
+        "开始面试",
+        "面试室",
+        "复盘报告",
+        "成长记录",
+    ]
+    navigation.set_value("开始面试").run()
+    assert not at.exception
+    assert at.session_state["current_view"] == "setup"
+
+    at.button(key="setup_next").click().run()
+    assert not at.exception
+    assert at.session_state["setup_step"] == 2
+    at.button(key="setup_next").click().run()
+    assert not at.exception
+    assert at.session_state["setup_step"] == 3
+
+    at.get_by_key("consent_checkbox").check().run()
     assert not at.exception
     at.button(key="start_interview").click().run(timeout=30)
     assert not at.exception
+    assert at.session_state["current_view"] == "interview"
     assert at.session_state["current_question"]
     assert at.session_state["model_budget"].used_tokens > 0
 
@@ -33,7 +54,7 @@ def test_demo_interview_starts_and_advances(monkeypatch, tmp_path):
     assert any(event.event_type == "model.call" for event in events)
     assert any(event.event_type == "question.generated" for event in events)
 
-    answer_mode = at.radio(key="answer_input_mode")
+    answer_mode = at.get_by_key("answer_input_mode")
     answer_mode.set_value(answer_mode.options[1]).run()
     assert not at.exception
 
@@ -65,6 +86,8 @@ def test_demo_interview_starts_and_advances(monkeypatch, tmp_path):
     at.button(key="finish_interview").click().run(timeout=30)
     assert not at.exception
     assert not at.error, [item.value for item in at.error]
+    assert at.session_state["current_view"] == "report"
+    assert at.session_state["feedback"]
     finished_events = at.session_state["agent_run"].events
     finished_types = [event.event_type for event in finished_events]
     assert "evaluation.completed" in finished_types
@@ -72,8 +95,14 @@ def test_demo_interview_starts_and_advances(monkeypatch, tmp_path):
     assert finished_types[-1] == "run.completed"
     assert list((tmp_path / "sessions").glob("*.json"))
     assert list((tmp_path / "records").glob("*.md"))
+
     replay = replay_agent_run(at.session_state["agent_run"].to_dict())
     assert replay.completed
     assert replay.evaluation_completed
     assert replay.record_exported
     assert replay.final_stage == 6
+
+    navigation = at.get_by_key(f"main_navigation_{at.session_state['nav_version']}")
+    navigation.set_value("成长记录").run()
+    assert not at.exception
+    assert at.session_state["current_view"] == "growth"

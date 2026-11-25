@@ -6,7 +6,11 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="全真大厂面试模拟器", layout="wide")
+st.set_page_config(
+    page_title="InterviewLoop",
+    page_icon=":material/psychology_alt:",
+    layout="wide",
+)
 
 from interview_loop.config import (
     DEMO_MODE,
@@ -227,6 +231,10 @@ defaults = {
     "current_question": "",
     "feedback": None,
     "session_id": new_session_id(),
+    "current_view": "dashboard",
+    "nav_version": 0,
+    "setup_step": 1,
+    "last_tags": [],
     "tenant_id": "local",
     "user_id": "local",
     "consent_granted": False,
@@ -294,6 +302,10 @@ def reset_interview_state() -> None:
     st.session_state.model_budget = default_usage_budget()
     st.session_state.consent_granted = False
     st.session_state.consent_at = None
+    st.session_state.last_tags = []
+    st.session_state.setup_step = 1
+    st.session_state.current_view = "setup"
+    st.session_state.nav_version = st.session_state.get("nav_version", 0) + 1
 # ===================== 简历解析与 RAG =====================
 def set_question_audio(question: str) -> None:
     try:
@@ -421,6 +433,7 @@ def generate_review(mode_cfg: dict) -> bool:
     st.session_state.feedback = feedback
     agent_run = st.session_state.get("agent_run")
     tags = extract_tags(feedback, tag_list)
+    st.session_state.last_tags = tags
     try:
         update_global_stats(st.session_state.mode, tags)
     except Exception as exc:
@@ -575,349 +588,479 @@ def render_interview_timer() -> None:
 
 
 # ===================== UI =====================
-st.title("🎙️ 全真大厂面试模拟器｜闯关 + 专项双模式")
+VIEW_ORDER = ["dashboard", "setup", "interview", "report", "growth"]
+VIEW_LABELS = {
+    "dashboard": "工作台",
+    "setup": "开始面试",
+    "interview": "面试室",
+    "report": "复盘报告",
+    "growth": "成长记录",
+}
+LABEL_TO_VIEW = {label: view for view, label in VIEW_LABELS.items()}
 
-if DEMO_MODE:
-    st.info("当前为演示模式：不调用 DeepSeek、ASR 或 TTS，可完整体验面试状态机和复盘流程。")
 
-col0_1, col0_2, col0_3 = st.columns([1, 1, 1])
-with col0_1:
-    new_mode = st.selectbox(
-        "👉 面试轮次",
-        MODE_LIST,
-        index=MODE_LIST.index(st.session_state.mode),
+def set_view(view: str) -> None:
+    st.session_state.current_view = view
+    st.session_state.nav_version = st.session_state.get("nav_version", 0) + 1
+
+
+def go_to(view: str) -> None:
+    set_view(view)
+    st.rerun()
+
+
+def render_sidebar() -> None:
+    with st.sidebar:
+        st.markdown("### InterviewLoop")
+        st.caption("AI 面试训练平台")
+        if DEMO_MODE:
+            st.caption("当前为演示模式")
+        current = st.session_state.get("current_view", "dashboard")
+        index = VIEW_ORDER.index(current) if current in VIEW_ORDER else 0
+        nav_version = int(st.session_state.get("nav_version", 0))
+        selected = st.radio(
+            "主导航",
+            [VIEW_LABELS[item] for item in VIEW_ORDER],
+            index=index,
+            key=f"main_navigation_{nav_version}",
+            label_visibility="collapsed",
+        )
+        selected_view = LABEL_TO_VIEW[selected]
+        if selected_view != current:
+            st.session_state.current_view = selected_view
+            st.rerun()
+
+        st.caption(f"{st.session_state.mode}  {st.session_state.style}")
+        if st.session_state.get("start_time") is not None:
+            status = "已完成" if st.session_state.get("feedback") else "进行中"
+            st.caption(f"面试状态：{status}")
+        if st.button("新建面试", key="sidebar_new_interview", width="stretch"):
+            reset_interview_state()
+            st.rerun()
+
+
+def render_dashboard() -> None:
+    st.title("InterviewLoop")
+    st.caption("把一次面试练习，变成持续可见的能力成长。")
+
+    sessions = list_session_files()
+    latest = None
+    if sessions:
+        try:
+            latest = json.loads(sessions[0].read_text(encoding="utf-8"))
+        except Exception:
+            latest = None
+    weak_items = sum(
+        int(value)
+        for value in st.session_state.global_weak_stats.get(st.session_state.mode, {}).values()
     )
-    if new_mode != st.session_state.mode:
-        st.session_state.mode = new_mode
-        st.session_state.style = MODE_CONFIG[new_mode]["default_style"]
-        reset_interview_state()
-        st.rerun()
 
-with col0_2:
-    new_it = st.radio(
-        "面试模式",
-        ["闯关全真面试", "薄弱专项练习"],
-        horizontal=True,
-        index=0 if st.session_state.interview_type == "闯关全真面试" else 1,
-    )
-    if new_it != st.session_state.interview_type:
-        st.session_state.interview_type = new_it
-        reset_interview_state()
-        st.rerun()
+    with st.container(border=True):
+        st.markdown("## 今天练什么？")
+        st.write(
+            "选择目标岗位和面试形式，完成一次完整模拟。结束后自动生成复盘、"
+            "薄弱项和下一步训练建议。"
+        )
+        action_left, action_right = st.columns([1, 1])
+        if action_left.button(
+            "开始一次面试",
+            type="primary",
+            key="dashboard_start",
+            width="stretch",
+        ):
+            go_to("setup")
+        if action_right.button(
+            "查看成长记录",
+            key="dashboard_growth",
+            width="stretch",
+        ):
+            go_to("growth")
 
-with col0_3:
-    st.session_state.style = st.selectbox(
-        "面试官风格",
-        STYLE_LIST,
-        index=STYLE_LIST.index(st.session_state.style),
-    )
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("历史训练", len(sessions))
+    metric_cols[1].metric("当前轮次", st.session_state.mode)
+    metric_cols[2].metric("弱项记录", weak_items)
 
-mode_cfg = MODE_CONFIG[st.session_state.mode]
-st.markdown(f"✅ 当前轮次：**{st.session_state.mode}**｜风格：**{st.session_state.style}**")
+    st.subheader("训练入口")
+    card_cols = st.columns(3)
+    with card_cols[0].container(border=True, height="stretch"):
+        st.markdown("#### 定向模拟")
+        st.caption("按岗位轮次和风格完成一次结构化面试。")
+        if st.button("进入设置", key="dashboard_card_setup", width="stretch"):
+            go_to("setup")
+    with card_cols[1].container(border=True, height="stretch"):
+        st.markdown("#### 最近复盘")
+        if latest and latest.get("feedback"):
+            st.caption(str(latest.get("time", "最近一次面试")))
+            if st.button("打开报告", key="dashboard_card_report", width="stretch"):
+                go_to("report")
+        else:
+            st.caption("完成一次面试后，这里会显示最近复盘。")
+    with card_cols[2].container(border=True, height="stretch"):
+        st.markdown("#### 能力趋势")
+        st.caption("查看历史记录、重复弱项和训练变化。")
+        if st.button("查看成长", key="dashboard_card_growth", width="stretch"):
+            go_to("growth")
 
-if st.session_state.interview_type == "闯关全真面试":
+
+def render_setup(mode_cfg: dict) -> None:
+    st.header("设置一次面试")
+    st.caption("先确定目标，再补充简历和授权信息。")
+
+    if st.session_state.get("start_time") is not None and not st.session_state.get("feedback"):
+        with st.container(border=True):
+            st.markdown("### 当前面试尚未结束")
+            st.write("继续当前面试，或新建一轮训练。")
+            col_left, col_right = st.columns(2)
+            if col_left.button("继续面试", type="primary", key="setup_continue_interview"):
+                go_to("interview")
+            if col_right.button("重置并重新设置", key="setup_reset_interview"):
+                reset_interview_state()
+                st.rerun()
+        return
+
+    step = int(st.session_state.get("setup_step", 1))
+    st.progress(step / 3, text=f"设置进度：{step}/3")
+    with st.container(border=True):
+        if step == 1:
+            st.subheader("1. 选择目标")
+            new_mode = st.selectbox(
+                "面试轮次",
+                MODE_LIST,
+                index=MODE_LIST.index(st.session_state.mode),
+            )
+            new_interview_type = st.segmented_control(
+                "面试模式",
+                ["闯关全真面试", "薄弱专项练习"],
+                default=st.session_state.interview_type,
+            )
+            new_style = st.segmented_control(
+                "面试官风格",
+                STYLE_LIST,
+                default=st.session_state.style,
+            )
+            if new_mode != st.session_state.mode:
+                st.session_state.mode = new_mode
+                st.session_state.style = MODE_CONFIG[new_mode]["default_style"]
+                reset_interview_state()
+                st.rerun()
+            if new_interview_type != st.session_state.interview_type:
+                st.session_state.interview_type = new_interview_type
+                reset_interview_state()
+                st.rerun()
+            if new_style != st.session_state.style:
+                st.session_state.style = new_style
+            st.caption(MODE_CONFIG[st.session_state.mode]["desc"])
+            if st.button("下一步：补充简历", type="primary", key="setup_next"):
+                st.session_state.setup_step = 2
+                st.rerun()
+        elif step == 2:
+            st.subheader("2. 补充上下文")
+            upload = st.file_uploader(
+                "上传简历（可选）",
+                type=["txt", "md", "pdf"],
+                key="resume_upload",
+            )
+            if upload is not None:
+                file_bytes = upload.getvalue()
+                signature = hashlib.sha256(file_bytes).hexdigest()
+                if signature != st.session_state.resume_signature:
+                    st.session_state.resume_signature = signature
+                    st.session_state.resume_retriever = None
+                    st.session_state.resume_error = None
+                    st.session_state.resume_rag_mode = None
+                    st.session_state.resume_name = upload.name
+                    st.session_state.resume_chars = 0
+                    try:
+                        with st.spinner("正在解析简历并构建 RAG 索引，只需执行一次..."):
+                            resume_text = extract_resume_text(upload)
+                            if not resume_text.strip():
+                                raise ValueError("简历没有可提取的文本；扫描版 PDF 请先做 OCR")
+                            retriever, rag_mode = build_rag(resume_text)
+                            st.session_state.resume_retriever = retriever
+                            st.session_state.resume_rag_mode = rag_mode
+                            st.session_state.resume_chars = len(resume_text)
+                    except Exception as exc:
+                        st.session_state.resume_error = str(exc)
+            if st.session_state.resume_error:
+                st.error(f"简历加载失败：{st.session_state.resume_error}")
+            elif st.session_state.resume_retriever is not None:
+                st.caption(
+                    f"已加载：{st.session_state.resume_name}  "
+                    f"{st.session_state.resume_chars} 字符  "
+                    f"检索模式：{st.session_state.resume_rag_mode}"
+                )
+            else:
+                st.caption("不上传简历也可以开始；上传后可获得更贴近经历的问题。")
+            col_left, col_right = st.columns(2)
+            if col_left.button("上一步", key="setup_back"):
+                st.session_state.setup_step = 1
+                st.rerun()
+            if col_right.button("下一步：确认并开始", type="primary", key="setup_next"):
+                st.session_state.setup_step = 3
+                st.rerun()
+        else:
+            st.subheader("3. 确认并开始")
+            summary_cols = st.columns(3)
+            summary_cols[0].metric("轮次", st.session_state.mode)
+            summary_cols[1].metric("模式", st.session_state.interview_type)
+            summary_cols[2].metric("风格", st.session_state.style)
+            if st.session_state.get("resume_name"):
+                st.caption(f"简历上下文：{st.session_state.resume_name}")
+            else:
+                st.caption("简历上下文：未上传")
+
+            consent = st.checkbox(
+                "我同意保存本次简历、文字或语音回答与复盘记录，并知悉数据保留策略。",
+                value=st.session_state.consent_granted,
+                key="consent_checkbox",
+            )
+            if consent and not st.session_state.consent_granted:
+                st.session_state.consent_granted = True
+                st.session_state.consent_at = time.strftime("%Y-%m-%d %H:%M:%S")
+            elif not consent:
+                st.session_state.consent_granted = False
+                st.session_state.consent_at = None
+            st.session_state.retention_policy = st.selectbox(
+                "数据保留策略",
+                ["ephemeral", "standard", "extended"],
+                index=["ephemeral", "standard", "extended"].index(
+                    st.session_state.retention_policy
+                ),
+                help="ephemeral=1天，standard=30天，extended=365天",
+            )
+            col_left, col_right = st.columns(2)
+            if col_left.button("上一步", key="setup_back"):
+                st.session_state.setup_step = 2
+                st.rerun()
+            if col_right.button(
+                "开始面试计时",
+                key="start_interview",
+                type="primary",
+                disabled=not st.session_state.consent_granted,
+                width="stretch",
+            ):
+                if (
+                    st.session_state.interview_type == "闯关全真面试"
+                    and st.session_state.current_stage_idx
+                    >= len(mode_cfg["stage_list"])
+                ):
+                    st.warning("所有阶段已完成，请开启新一轮面试。")
+                else:
+                    st.session_state.model_budget = default_usage_budget()
+                    agent_run = AgentRun(
+                        tenant_id=current_tenant_id(),
+                        user_id=st.session_state.get("user_id", "local"),
+                        retention_policy=st.session_state.get("retention_policy", "standard"),
+                        consent_granted=st.session_state.get("consent_granted", False),
+                        consent_at=st.session_state.get("consent_at"),
+                        metadata={
+                            "mode": st.session_state.mode,
+                            "interview_type": st.session_state.interview_type,
+                            "style": st.session_state.style,
+                        },
+                    )
+                    agent_run.start("interview.start")
+                    st.session_state.agent_run = agent_run
+                    try:
+                        with st.spinner("正在生成第一道题..."):
+                            ctx = query_resume(st.session_state.resume_retriever, "")
+                            if st.session_state.interview_type == "闯关全真面试":
+                                question = get_stage_question(
+                                    st.session_state.mode,
+                                    st.session_state.current_stage_idx,
+                                    ctx,
+                                    st.session_state.global_weak_stats[st.session_state.mode],
+                                    st.session_state.stage_main_index,
+                                    st.session_state.stage_followup_count,
+                                    st.session_state.stage_followup_count > 0,
+                                )
+                            else:
+                                question = get_weak_question(st.session_state.mode)
+                    except Exception as exc:
+                        record_run_error(exc, "interview.start.failed")
+                        st.error(str(exc))
+                    else:
+                        st.session_state.start_time = time.time()
+                        st.session_state.interview_started_at = time.strftime(
+                            "%Y-%m-%d_%H-%M-%S"
+                        )
+                        st.session_state.current_question = question
+                        record_question_generated(
+                            question,
+                            mode_cfg,
+                            st.session_state.current_stage_idx,
+                            st.session_state.stage_main_index,
+                            st.session_state.stage_followup_count,
+                        )
+                        set_question_audio(question)
+                        set_view("interview")
+                        st.rerun()
+
+
+def render_interview(mode_cfg: dict) -> None:
+    st.header("面试室")
+    if st.session_state.get("start_time") is None or not st.session_state.get("current_question"):
+        with st.container(border=True):
+            st.markdown("### 还没有进行中的面试")
+            st.write("先完成面试设置，再进入专注面试模式。")
+            if st.button("去设置面试", type="primary", key="interview_empty_setup"):
+                go_to("setup")
+        return
+
     stages = mode_cfg["stage_list"]
-    total_stage = len(stages)
-    cur_idx = st.session_state.current_stage_idx
-    if cur_idx < total_stage:
-        cur_stage = stages[cur_idx]
-        question_plan = cur_stage.get("question_plan") or cur_stage["pool"]
+    current_stage_idx = st.session_state.current_stage_idx
+    all_done = (
+        st.session_state.interview_type == "闯关全真面试"
+        and current_stage_idx >= len(stages)
+    )
+    if not all_done:
+        current_stage = stages[current_stage_idx]
+        question_plan = current_stage.get("question_plan") or current_stage["pool"]
         main_total = max(1, len(question_plan))
         main_current = min(st.session_state.stage_main_index + 1, main_total)
-        max_followups = max(0, int(cur_stage.get("max_followups", 0)))
+        max_followups = max(0, int(current_stage.get("max_followups", 0)))
         followup_text = (
-            f"｜追问 {st.session_state.stage_followup_count}/{max_followups}"
+            f"  追问 {st.session_state.stage_followup_count}/{max_followups}"
             if max_followups
             else ""
         )
         st.progress(
-            (cur_idx + 1) / total_stage,
+            (current_stage_idx + 1) / len(stages),
             text=(
-                f"进度：阶段 {cur_idx + 1}/{total_stage}｜【{cur_stage['name']}】"
-                f"｜主问题 {main_current}/{main_total}{followup_text}"
+                f"阶段 {current_stage_idx + 1}/{len(stages)}  {current_stage['name']}  "
+                f"主问题 {main_current}/{main_total}{followup_text}"
             ),
         )
-        if st.button("⏭️ 跳过当前阶段", help="直接跳到下一阶段"):
-            next_stage_idx = st.session_state.current_stage_idx + 1
-            record_stage_transition(
-                mode_cfg,
-                st.session_state.current_stage_idx,
-                next_stage_idx,
-            )
-            st.session_state.current_stage_idx = next_stage_idx
-            st.session_state.stage_main_index = 0
-            st.session_state.stage_followup_count = 0
-            st.session_state.current_question = ""
-            st.session_state.question_audio = None
-            st.session_state.question_audio_error = None
 
-            if st.session_state.start_time is not None:
-                if next_stage_idx >= total_stage:
-                    st.session_state.current_question = (
-                        "本次面试所有阶段完成，你可以点击 Finish 生成复盘。"
-                    )
-                    st.rerun()
-                else:
-                    try:
-                        with st.spinner("正在生成下一阶段题目..."):
-                            next_question = get_stage_question(
-                                st.session_state.mode,
-                                next_stage_idx,
-                                query_resume(st.session_state.resume_retriever, ""),
-                                st.session_state.global_weak_stats[st.session_state.mode],
-                                0,
-                                0,
-                                False,
-                            )
-                    except Exception as exc:
-                        st.error(str(exc))
-                        st.session_state.start_time = None
-                    else:
-                        st.session_state.current_question = next_question
-                        set_question_audio(next_question)
-                        st.rerun()
-            else:
-                st.rerun()
-    else:
-        st.success("🎉 所有面试阶段全部走完！")
+    render_interview_timer()
 
-col_main, col_side = st.columns([2, 1])
-with col_main:
-    upload = st.file_uploader(
-        "📄 上传简历（txt/md/pdf），RAG 个性化出题",
-        type=["txt", "md", "pdf"],
-        key="resume_upload",
-    )
-
-    if upload is None:
-        if st.session_state.resume_signature is not None:
-            st.session_state.resume_signature = None
-            st.session_state.resume_retriever = None
-            st.session_state.resume_name = None
-            st.session_state.resume_chars = 0
-            st.session_state.resume_error = None
-            st.session_state.resume_rag_mode = None
-    else:
-        file_bytes = upload.getvalue()
-        signature = hashlib.sha256(file_bytes).hexdigest()
-        if signature != st.session_state.resume_signature:
-            st.session_state.resume_signature = signature
-            st.session_state.resume_retriever = None
-            st.session_state.resume_error = None
-            st.session_state.resume_rag_mode = None
-            st.session_state.resume_name = upload.name
-            st.session_state.resume_chars = 0
-            try:
-                with st.spinner("正在解析简历并构建 RAG 索引，只需执行一次..."):
-                    resume_text = extract_resume_text(upload)
-                    if not resume_text.strip():
-                        raise ValueError("简历没有可提取的文本；扫描版 PDF 请先做 OCR")
-                    retriever, rag_mode = build_rag(resume_text)
-                    st.session_state.resume_retriever = retriever
-                    st.session_state.resume_rag_mode = rag_mode
-                    st.session_state.resume_chars = len(resume_text)
-            except Exception as exc:
-                st.session_state.resume_error = str(exc)
-
-        if st.session_state.resume_error:
-            st.error(f"简历加载失败：{st.session_state.resume_error}")
-        elif st.session_state.resume_retriever is not None:
-            st.caption(
-                f"已加载简历：{st.session_state.resume_name}｜"
-                f"{st.session_state.resume_chars} 字符｜"
-                f"检索模式：{st.session_state.resume_rag_mode}｜后续重跑不会重复解析"
-            )
-    if st.session_state.start_time is None:
-        consent = st.checkbox(
-            "我同意保存本次简历、文字或语音回答与复盘记录，并知悉数据保留策略。",
-            value=st.session_state.consent_granted,
-            key="consent_checkbox",
-        )
-        if consent and not st.session_state.consent_granted:
-            st.session_state.consent_granted = True
-            st.session_state.consent_at = time.strftime("%Y-%m-%d %H:%M:%S")
-        elif not consent:
-            st.session_state.consent_granted = False
-            st.session_state.consent_at = None
-        st.session_state.retention_policy = st.selectbox(
-            "数据保留策略",
-            ["ephemeral", "standard", "extended"],
-            index=["ephemeral", "standard", "extended"].index(
-                st.session_state.retention_policy
-            ),
-            help="ephemeral=1天，standard=30天，extended=365天",
-        )
-        if st.button(
-            "开始面试计时",
-            key="start_interview",
-            disabled=not st.session_state.consent_granted,
-        ):
-            if (
-                st.session_state.interview_type == "闯关全真面试"
-                and st.session_state.current_stage_idx >= len(mode_cfg["stage_list"])
-            ):
-                st.warning("所有阶段已完成，可以点击 Finish 生成复盘或开启新一轮")
-            else:
-                st.session_state.model_budget = default_usage_budget()
-                agent_run = AgentRun(
-                    tenant_id=current_tenant_id(),
-                    user_id=st.session_state.get("user_id", "local"),
-                    retention_policy=st.session_state.get("retention_policy", "standard"),
-                    consent_granted=st.session_state.get("consent_granted", False),
-                    consent_at=st.session_state.get("consent_at"),
-                    metadata={
-                        "mode": st.session_state.mode,
-                        "interview_type": st.session_state.interview_type,
-                        "style": st.session_state.style,
-                    },
-                )
-                agent_run.start("interview.start")
-                st.session_state.agent_run = agent_run
-                try:
-                    with st.spinner("正在生成第一道题..."):
-                        ctx = query_resume(st.session_state.resume_retriever, "")
-                        if st.session_state.interview_type == "闯关全真面试":
-                            question = get_stage_question(
-                                st.session_state.mode,
-                                st.session_state.current_stage_idx,
-                                ctx,
-                                st.session_state.global_weak_stats[st.session_state.mode],
-                                st.session_state.stage_main_index,
-                                st.session_state.stage_followup_count,
-                                st.session_state.stage_followup_count > 0,
-                            )
-                        else:
-                            question = get_weak_question(st.session_state.mode)
-                except Exception as exc:
-                    record_run_error(exc, "interview.start.failed")
-                    st.error(str(exc))
-                else:
-                    st.session_state.start_time = time.time()
-                    st.session_state.interview_started_at = time.strftime(
-                        "%Y-%m-%d_%H-%M-%S"
-                    )
-                    st.session_state.current_question = question
-                    record_question_generated(
-                        question,
-                        mode_cfg,
-                        st.session_state.current_stage_idx,
-                        st.session_state.stage_main_index,
-                        st.session_state.stage_followup_count,
-                    )
-                    st.session_state.agent_run = agent_run
-                    set_question_audio(question)
-                    st.rerun()
-    else:
-        render_interview_timer()
-
-    if st.session_state.current_question:
-        st.subheader("👨‍💼 面试官问题")
-        st.markdown(f"**{st.session_state.current_question}**")
+    with st.container(border=True):
+        st.caption("面试官")
+        st.markdown(f"## {st.session_state.current_question}")
         if st.session_state.question_audio:
             st.audio(st.session_state.question_audio, format="audio/mpeg")
         elif st.session_state.question_audio_error:
             st.caption(f"语音播放不可用：{st.session_state.question_audio_error}")
 
-        answer_mode = st.radio(
-            "选择回答方式",
-            ["🎤 语音输入", "⌨️ 文字输入"],
-            index=0,
-            horizontal=True,
+    if not all_done:
+        answer_mode = st.segmented_control(
+            "回答方式",
+            ["语音输入", "文字输入"],
+            default="语音输入",
             key="answer_input_mode",
         )
-
-        if answer_mode == "🎤 语音输入":
-            audio_in = st.audio_input("🎤 点击录制回答", key="answer_audio")
-            if audio_in is not None:
-                audio_bytes = audio_in.getvalue()
-                st.audio(audio_bytes, format="audio/wav")
-                audio_digest = hashlib.sha256(audio_bytes).hexdigest()
-                if audio_digest == st.session_state.last_audio_digest:
-                    st.caption("这段录音已经处理过；请重新录制下一段回答")
-                else:
-                    # 先标记已处理，避免 Streamlit 重跑时重复识别同一段录音。
-                    st.session_state.last_audio_digest = audio_digest
-                    try:
-                        with st.spinner("正在识别回答..."):
-                            ans_text = audio2text(audio_bytes)
-                    except Exception as exc:
-                        st.error(str(exc))
+        with st.container(border=True):
+            if answer_mode == "语音输入":
+                audio_in = st.audio_input("点击录制回答", key="answer_audio")
+                if audio_in is not None:
+                    audio_bytes = audio_in.getvalue()
+                    st.audio(audio_bytes, format="audio/wav")
+                    audio_digest = hashlib.sha256(audio_bytes).hexdigest()
+                    if audio_digest == st.session_state.last_audio_digest:
+                        st.caption("这段录音已经处理过，请录制下一段回答。")
                     else:
-                        if not ans_text:
-                            st.warning("没有识别到有效内容，请重新录制")
+                        st.session_state.last_audio_digest = audio_digest
+                        try:
+                            with st.spinner("正在识别回答..."):
+                                ans_text = audio2text(audio_bytes)
+                        except Exception as exc:
+                            st.error(str(exc))
                         else:
-                            st.success(f"✅ 识别回答：{ans_text}")
-                            if process_answer(ans_text, mode_cfg):
-                                st.rerun()
-        else:
-            with st.form("text_answer_form", clear_on_submit=True, border=True):
-                text_answer = st.text_area(
-                    "⌨️ 输入文字回答",
-                    height=140,
-                    placeholder="在这里输入你的回答，提交后与语音回答流程完全一致。",
-                    key="text_answer",
-                )
-                text_submitted = st.form_submit_button(
-                    "提交文字回答",
-                    type="primary",
-                    key="submit_text_answer",
-                )
-            if text_submitted:
-                cleaned_answer = text_answer.strip()
-                if not cleaned_answer:
-                    st.warning("请输入文字回答后再提交")
-                elif process_answer(cleaned_answer, mode_cfg):
-                    st.rerun()
+                            if not ans_text:
+                                st.warning("没有识别到有效内容，请重新录制。")
+                            else:
+                                st.success(f"识别结果：{ans_text}")
+                                if process_answer(ans_text, mode_cfg):
+                                    st.rerun()
+            else:
+                with st.form("text_answer_form", clear_on_submit=True, border=False):
+                    text_answer = st.text_area(
+                        "输入文字回答",
+                        height=150,
+                        placeholder="在这里输入你的回答，提交后进入下一题。",
+                        key="text_answer",
+                    )
+                    text_submitted = st.form_submit_button(
+                        "提交回答",
+                        type="primary",
+                        key="submit_text_answer",
+                        width="stretch",
+                    )
+                if text_submitted:
+                    cleaned_answer = text_answer.strip()
+                    if not cleaned_answer:
+                        st.warning("请输入文字回答后再提交。")
+                    elif process_answer(cleaned_answer, mode_cfg):
+                        st.rerun()
 
-        if st.button("✅ Finish 结束面试，生成复盘", type="primary", key="finish_interview"):
-            if generate_review(mode_cfg):
-                st.rerun()
+    st.caption("结束后点击下方按钮生成完整复盘和面试记录。")
+    if st.button(
+        "结束面试并生成复盘",
+        type="primary",
+        key="finish_interview",
+        width="stretch",
+    ):
+        if generate_review(mode_cfg):
+            set_view("report")
+            st.rerun()
 
-    if st.session_state.feedback:
-        st.markdown("---")
-        st.subheader("📝 面试复盘报告")
-        st.markdown(st.session_state.feedback)
+
+def render_report() -> None:
+    st.header("复盘报告")
+    feedback = st.session_state.get("feedback")
+    if not feedback:
+        with st.container(border=True):
+            st.markdown("### 还没有可查看的复盘")
+            st.write("完成一轮面试后，系统会在这里生成结构化复盘。")
+            if st.button("开始一轮面试", type="primary", key="report_empty_start"):
+                go_to("setup")
+        return
+
+    duration_seconds = None
+    if st.session_state.get("start_time") is not None:
+        duration_seconds = int(max(0, time.time() - st.session_state.start_time))
+    tags = st.session_state.get("last_tags", [])
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("回答轮次", len(st.session_state.messages) // 2)
+    metric_cols[1].metric("薄弱标签", len(tags))
+    metric_cols[2].metric(
+        "用时",
+        f"{(duration_seconds or 0) // 60} 分钟",
+    )
+
+    if tags:
+        st.caption("本轮薄弱标签")
+        st.write("  ".join(tags))
+
+    with st.container(border=True):
+        st.markdown(feedback)
 
     if st.session_state.get("last_record_path"):
-        st.success(f"完整面试记录已保存：{st.session_state.last_record_path}")
+        st.caption(f"完整记录已保存：{st.session_state.last_record_path}")
         if st.session_state.get("last_record_markdown"):
             st.download_button(
-                "⬇️ 下载本次面试记录",
+                "下载完整面试记录",
                 data=st.session_state.last_record_markdown.encode("utf-8"),
                 file_name=Path(st.session_state.last_record_path).name,
                 mime="text/markdown",
                 key="download_interview_record",
+                width="stretch",
             )
 
-    if st.button("🔄 开启新一轮【当前轮次】面试", key="new_round"):
+    action_left, action_right = st.columns(2)
+    if action_left.button("再练一轮", type="primary", key="report_again"):
         reset_interview_state()
         st.rerun()
-with col_side:
-    st.subheader("本轮模型用量")
-    budget = st.session_state.get("model_budget")
-    agent_run = st.session_state.get("agent_run")
-    if budget is not None:
-        st.caption(
-            f"Token: {budget.used_tokens:,} / {budget.max_tokens:,}  "
-            f"估算成本(CNY): {budget.used_cost:.4f} / {budget.max_cost:.2f}"
-        )
-        model_calls = (
-            [event for event in agent_run.events if event.event_type == "model.call"]
-            if agent_run is not None
-            else []
-        )
-        st.caption(f"已记录模型调用 {len(model_calls)} 次；成本按配置单价估算。")
-        if model_calls:
-            with st.expander("最近模型调用"):
-                for event in model_calls[-5:]:
-                    payload = event.payload
-                    st.caption(
-                        f"{event.node} | {payload.get('model', 'unknown')} | "
-                        f"{payload.get('latency_ms', 0)} ms | "
-                        f"{payload.get('attempts', 0)} 次尝试"
-                    )
+    if action_right.button("查看成长记录", key="report_growth"):
+        go_to("growth")
 
-    st.subheader("📊 分轮次薄弱统计")
+
+def render_growth(mode_cfg: dict) -> None:
+    st.header("成长记录")
+    st.caption("查看弱项、历史面试和最近一次运行的技术信息。")
+
+    st.subheader("分轮次薄弱统计")
     tabs = st.tabs(MODE_LIST)
     for idx, mode in enumerate(MODE_LIST):
         with tabs[idx]:
@@ -928,7 +1071,7 @@ with col_side:
                     columns=["标签", "次数"],
                 ).sort_values("次数", ascending=False)
                 st.dataframe(df, hide_index=True)
-                if st.button(f"🗑️ 清空【{mode}】统计", key=f"clear_{mode}"):
+                if st.button(f"清空【{mode}】统计", key=f"clear_{mode}"):
                     st.session_state.global_weak_stats[mode] = {}
                     try:
                         save_global_weak_stats(st.session_state.global_weak_stats)
@@ -937,11 +1080,13 @@ with col_side:
                     else:
                         st.rerun()
             else:
-                st.write("暂无薄弱记录")
+                st.caption("暂无薄弱记录")
 
-    st.subheader("📚 历史面试记录")
-    st.session_state.session_list = list_session_files()
-    for session_file in st.session_state.session_list:
+    st.subheader("历史面试")
+    sessions = list_session_files()
+    if not sessions:
+        st.caption("暂无历史记录")
+    for session_file in sessions:
         try:
             saved = json.loads(session_file.read_text(encoding="utf-8"))
             saved_mode = saved["mode"]
@@ -950,14 +1095,15 @@ with col_side:
         except Exception:
             st.caption(f"跳过损坏记录：{session_file.name}")
             continue
-
         label = (
-            f"{saved.get('time', '未知时间')}｜{saved_mode}｜"
+            f"{saved.get('time', '未知时间')}  {saved_mode}  "
             f"{saved.get('interview_type', '未知模式')}"
         )
-        if st.button(label, key=f"history_{session_file.stem}"):
+        open_col, delete_col = st.columns([4, 1])
+        if open_col.button(label, key=f"history_{session_file.stem}", width="stretch"):
             st.session_state.messages = saved.get("messages", [])
             st.session_state.feedback = saved.get("feedback")
+            st.session_state.last_tags = saved.get("tags", [])
             st.session_state.mode = saved_mode
             st.session_state.interview_type = saved.get(
                 "interview_type", "闯关全真面试"
@@ -982,8 +1128,9 @@ with col_side:
             st.session_state.consent_at = saved.get("consent_at")
             st.session_state.retention_policy = saved.get("retention_policy", "standard")
             st.session_state.session_id = new_session_id()
+            set_view("report" if saved.get("feedback") else "setup")
             st.rerun()
-        if st.button("删除这条记录", key=f"delete_{session_file.stem}"):
+        if delete_col.button("删除", key=f"delete_{session_file.stem}"):
             session_file.unlink(missing_ok=True)
             markdown_name = "_".join(
                 [
@@ -994,10 +1141,46 @@ with col_side:
                 ]
             ) + ".md"
             (tenant_record_dir() / markdown_name).unlink(missing_ok=True)
-            st.session_state.session_list = list_session_files()
             st.rerun()
 
-st.caption(
-    "全真面试模拟器｜60 分钟闯关流程、主问题与动态追问、文字/语音作答；"
-    "专项模式专攻短板"
-)
+    with st.expander("最近一次运行的技术信息"):
+        budget = st.session_state.get("model_budget")
+        if budget is not None:
+            st.caption(
+                f"本轮 Token：{budget.used_tokens:,} / {budget.max_tokens:,}  "
+                f"估算成本：{budget.used_cost:.4f} / {budget.max_cost:.2f}"
+            )
+        quota = TENANT_QUOTA_STORE.snapshot(current_tenant_id())
+        st.caption(
+            f"租户额度：{quota['used_tokens']:,} / {quota['max_tokens']:,} Token  "
+            f"{quota['used_cost']:.4f} / {quota['max_cost']:.2f}"
+        )
+        agent_run = st.session_state.get("agent_run")
+        if agent_run is not None:
+            model_calls = [
+                event for event in agent_run.events if event.event_type == "model.call"
+            ]
+            st.caption(f"模型调用：{len(model_calls)} 次  事件：{len(agent_run.events)} 条")
+            for event in model_calls[-5:]:
+                payload = event.payload
+                st.caption(
+                    f"{event.node}  {payload.get('model', 'unknown')}  "
+                    f"{payload.get('latency_ms', 0)} ms"
+                )
+
+
+mode_cfg = MODE_CONFIG[st.session_state.mode]
+render_sidebar()
+view = st.session_state.get("current_view", "dashboard")
+if view == "dashboard":
+    render_dashboard()
+elif view == "setup":
+    render_setup(mode_cfg)
+elif view == "interview":
+    render_interview(mode_cfg)
+elif view == "report":
+    render_report()
+else:
+    render_growth(mode_cfg)
+
+st.caption("InterviewLoop  结构化面试  证据化复盘  持续训练")

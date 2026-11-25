@@ -160,3 +160,21 @@ http://localhost:8501
 ## 免责声明
 
 本项目用于技术面试训练和模拟，不构成真实招聘决策、职业建议或录用承诺。请勿提交真实简历、录音或面试记录到公开仓库。
+
+## Docker 运行
+
+先准备环境变量：
+
+```bash
+cp .env.example .env
+```
+
+填写 `.env` 后启动：
+
+```bash
+docker compose up --build
+```
+
+浏览器访问 `http://localhost:8501`。
+
+Docker 不会打包 `.streamlit/secrets.toml`、真实面试记录或本地会话数据。运行时记录通过 volume 保存在宿主机。

@@ -1,0 +1,11 @@
+services:
+  interview-loop:
+    build: .
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./interview_sessions:/app/interview_sessions
+      - ./面试记录:/app/面试记录
+    restart: unless-stopped

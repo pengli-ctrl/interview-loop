@@ -48,6 +48,7 @@ def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
     assert not at.exception
     assert at.session_state["current_view"] == "interview"
     assert at.session_state["current_question"]
+    assert at.session_state["agent_run"].metadata["scenario_id"] == "tech_screen_1"
     assert at.session_state["model_budget"].used_tokens > 0
 
     events = at.session_state["agent_run"].events

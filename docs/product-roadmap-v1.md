@@ -18,8 +18,8 @@ Position InterviewLoop as an AI interview-training platform:
 | Step | Status | Evidence |
 |---|---|---|
 | 1. Product shell and information architecture | Complete | Five views, three-step setup, native theme, full AppTest flow |
-| 2. Scenario model and configuration registry | Not started | Pending Step 1 closure |
-| 3. JD and resume matching | Not started | Pending Step 2 |
+| 2. Scenario model and configuration registry | Complete | Typed model, validated JSON pack, shared registry, scenario API |
+| 3. JD and resume matching | Not started | Pending Step 2 closure |
 | 4. Report and growth loop | Not started | Pending Step 3 |
 | 5. Minimal platform control plane | Not started | Pending Step 4 |
 

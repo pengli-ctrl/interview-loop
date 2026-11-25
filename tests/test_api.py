@@ -303,3 +303,26 @@ def test_metrics_endpoint_summarizes_tenant_runs():
     assert report["completed_runs"] == 1
     assert report["model_call_count"] == 1
     assert report["latency_p50_ms"] == 120
+
+
+def test_scenario_catalog_and_detail():
+    headers = {"X-Tenant-Id": "tenant-scenarios"}
+    catalog = client.get("/v1/scenarios", headers=headers)
+    assert catalog.status_code == 200
+    scenarios = catalog.json()["scenarios"]
+    assert [item["id"] for item in scenarios] == [
+        "tech_screen_1",
+        "tech_screen_2",
+        "tech_screen_3",
+        "hr_screen",
+    ]
+    assert scenarios[0]["stage_count"] == 6
+    assert scenarios[0]["question_count"] == 9
+
+    detail = client.get("/v1/scenarios/tech_screen_1", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["interview_round"] == "技术一面"
+    assert detail.json()["rubric"][0]["name"] == "technical_depth"
+
+    missing = client.get("/v1/scenarios/not-found", headers=headers)
+    assert missing.status_code == 404

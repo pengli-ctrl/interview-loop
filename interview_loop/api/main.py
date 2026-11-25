@@ -27,6 +27,7 @@ from interview_loop.platform.tool_registry import (
     ToolSchemaError,
     ToolTimeoutError,
 )
+from interview_loop.scenarios import ScenarioNotFoundError, get_default_registry
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
@@ -75,12 +76,13 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(
         title="InterviewLoop Agent API",
-        version="0.10.0",
+        version="0.12.0",
         description="Vertical agent-platform slice for interview run orchestration.",
     )
     db_path = Path(os.getenv("INTERVIEWLOOP_DB_PATH", BASE_DIR / "interview_loop.db"))
     app.state.repository = repository or SQLiteAgentRunRepository(db_path)
     app.state.tool_registry = tool_registry or build_default_tool_registry()
+    app.state.scenario_registry = get_default_registry()
     configured_api_key = (
         api_key if api_key is not None else os.getenv("INTERVIEWLOOP_API_KEY", "")
     )
@@ -131,6 +133,24 @@ def create_app(
                 for tool in request.app.state.tool_registry.list_tools()
             ]
         }
+
+    @app.get("/v1/scenarios")
+    def list_scenarios(
+        request: Request,
+        current: Principal = Depends(principal),
+    ) -> dict:
+        return {"scenarios": request.app.state.scenario_registry.catalog()}
+
+    @app.get("/v1/scenarios/{scenario_id}")
+    def get_scenario(
+        request: Request,
+        scenario_id: str,
+        current: Principal = Depends(principal),
+    ) -> dict:
+        try:
+            return request.app.state.scenario_registry.get(scenario_id).to_dict()
+        except ScenarioNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Scenario not found") from exc
 
     @app.post("/v1/agent-runs", status_code=201)
     def create_run(

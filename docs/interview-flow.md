@@ -42,3 +42,7 @@
 - JSON：结构化会话数据。
 - Markdown：可阅读的完整面试记录。
 - 弱项标签：用于下一次训练的薄弱点统计。
+
+## 场景配置
+
+面试轮次、阶段顺序、主问题计划、追问上限、时间预算和 Rubric 来自 `interview_loop/scenarios/packs/` 下的版本化 JSON 场景包。Streamlit 和 API 共用同一个场景注册表。

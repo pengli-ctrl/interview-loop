@@ -19,6 +19,7 @@ from interview_loop.config import (
     MODE_LIST,
     RECORD_DIR,
     SAVE_DIR,
+    SCENARIO_REGISTRY,
     STYLE_LIST,
 )
 from interview_loop.core.flow import FlowAction, decide_next_step
@@ -856,6 +857,9 @@ def render_setup(mode_cfg: dict) -> None:
                         consent_at=st.session_state.get("consent_at"),
                         metadata={
                             "mode": st.session_state.mode,
+                            "scenario_id": SCENARIO_REGISTRY.scenario_for_round(
+                                st.session_state.mode
+                            ).id,
                             "interview_type": st.session_state.interview_type,
                             "style": st.session_state.style,
                         },

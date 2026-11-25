@@ -20,6 +20,7 @@ InterviewLoop 将一次技术面试拆成轮次、阶段、主问题、追问和
 ## 核心功能
 
 - 五视图产品壳：工作台、三步设置向导、专注面试室、复盘报告、成长记录。
+- 版本化场景注册表：岗位族、轮次、阶段、题目计划、时长和 Rubric 配置化。
 - 4 个面试轮次：技术一面、技术二面、技术三面、HR 面。
 - 每轮独立 6 阶段流程，支持主问题、动态追问和时间预算。
 - 默认 60 分钟面试，倒计时自动刷新。
@@ -170,6 +171,7 @@ http://localhost:8501
 - [ADR-011: Golden dataset and retrieval metrics](docs/adr/0011-golden-dataset-and-retrieval-metrics.md)
 - [ADR-012: Model routing, budgets and telemetry](docs/adr/0012-model-routing-budgets-and-telemetry.md)
 - [ADR-013: Tool execution runtime](docs/adr/0013-tool-execution-runtime.md)
+- [ADR-014: Versioned scenario registry](docs/adr/0014-versioned-scenario-registry.md)
 
 ## 当前局限
 
@@ -191,6 +193,7 @@ http://localhost:8501
 - [x] 增加熔断、租户额度、PII、保留策略、导出和删除。
 - [x] 增加质量基线、Trace Replay 和 Agent 指标汇总。
 - [x] 完成产品化第 1 步：五视图信息架构、三步设置向导和统一主题。
+- [x] 完成产品化第 2 步：场景模型、配置包、注册表和共享 API。
 - [ ] 建立标准评分 Rubric 和评估基准集。
 - [ ] 增加账号、数据库、对象存储和用户数据隔离。
 - [ ] 增加公测所需的配额、限流、监控和隐私合规能力。
@@ -207,7 +210,7 @@ ruff check .
 pytest -q
 ```
 
-当前测试覆盖状态机、追问判定、问题相似度、复盘标签、Markdown 导出、会话存储、弱项统计、简历编码解析、模型路由/熔断/租户额度、工具超时/幂等/Schema/审计、PII、保留与删除、质量校准、Trace Replay，以及五视图产品壳下的 Streamlit 全阶段流转。
+当前测试覆盖场景注册表与配置校验、状态机、追问判定、问题相似度、复盘标签、Markdown 导出、会话存储、弱项统计、简历编码解析、模型路由/熔断/租户额度、工具超时/幂等/Schema/审计、PII、保留与删除、质量校准、Trace Replay，以及五视图产品壳下的 Streamlit 全阶段流转。
 
 ## Demo 模式
 
@@ -238,6 +241,8 @@ uvicorn interview_loop.api.main:app --reload
 
 - `GET /health`
 - `GET /v1/tools`
+- `GET /v1/scenarios`
+- `GET /v1/scenarios/{scenario_id}`
 - `POST /v1/agent-runs`
 - `GET /v1/agent-runs/{run_id}`
 - `POST /v1/agent-runs/{run_id}/start`

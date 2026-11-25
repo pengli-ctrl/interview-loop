@@ -36,6 +36,10 @@
 app.py
 interview_loop/
   config.py
+  scenarios/
+    models.py
+    registry.py
+    packs/
   core/
     flow.py
     question_engine.py
@@ -73,9 +77,10 @@ interview_loop/
 3. `rag` 负责简历解析和检索。
 4. `storage` 负责会话和统计持久化。
 5. `export` 负责 Markdown 生成。
-6. `platform` 负责 AgentRun、ModelGateway 和 ToolRegistry；模型网关支持重试、Provider 回退、预算控制与调用事件，工具运行层负责超时、幂等、权限与审计。
-7. `app.py` 负责 Streamlit UI 和 session state 编排。
-8. 纯逻辑模块不依赖真实网络调用，便于 pytest 和 CI。
+6. `scenarios` 负责版本化场景模型、配置包、校验和注册表。
+7. `platform` 负责 AgentRun、ModelGateway 和 ToolRegistry；模型网关支持重试、Provider 回退、预算控制与调用事件，工具运行层负责超时、幂等、权限与审计。
+8. `app.py` 负责 Streamlit UI 和 session state 编排。
+9. 纯逻辑模块不依赖真实网络调用，便于 pytest 和 CI。
 
 ## 后续演进方向
 

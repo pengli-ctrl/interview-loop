@@ -1,3 +1,4 @@
+"""简历模块，负责 TXT、Markdown 和 PDF 简历文本提取。"""
 import io
 
 from interview_loop.config import MAX_RESUME_BYTES
@@ -5,6 +6,19 @@ from interview_loop.rag.text import decode_resume_text
 
 
 def extract_resume_text(upload) -> str:
+    """从 TXT、Markdown 或 PDF 提取简历文本。
+
+    Args:
+        upload: `upload` 输入参数，类型为 未标注。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    Raises:
+        ValueError: 当输入、状态或外部依赖不满足要求时抛出 ValueError。
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     data = upload.getvalue()
     if len(data) > MAX_RESUME_BYTES:
         raise ValueError("简历文件超过 10 MB，请压缩或删除图片后重试")

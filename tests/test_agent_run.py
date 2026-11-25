@@ -1,7 +1,9 @@
+"""测试模块，覆盖 AgentRun 相关行为和回归场景。"""
 from interview_loop.platform.agent_run import AgentRun, RunStatus
 
 
 def test_agent_run_lifecycle():
+    """验证Agent运行生命周期。"""
     run = AgentRun(tenant_id="t1", user_id="u1", metadata={"mode": "技术一面"})
     run.start()
     assert run.status is RunStatus.RUNNING
@@ -13,6 +15,7 @@ def test_agent_run_lifecycle():
 
 
 def test_agent_run_failure():
+    """验证Agent运行失败。"""
     run = AgentRun()
     run.fail("model timeout")
     assert run.status is RunStatus.FAILED
@@ -20,6 +23,7 @@ def test_agent_run_failure():
 
 
 def test_agent_run_serialization():
+    """验证Agent运行序列化。"""
     run = AgentRun(tenant_id="t1", user_id="u1")
     run.start()
     data = run.to_dict()
@@ -29,6 +33,7 @@ def test_agent_run_serialization():
 
 
 def test_agent_event_payload_is_pii_redacted():
+    """验证Agent事件负载判断PII已脱敏。"""
     run = AgentRun()
     run.record_event(
         "candidate.contact",
@@ -44,6 +49,7 @@ def test_agent_event_payload_is_pii_redacted():
 
 
 def test_agent_run_records_consent_and_retention():
+    """验证 AgentRun 记录同意信息和保留策略。"""
     run = AgentRun(
         tenant_id="tenant-a",
         user_id="user-a",

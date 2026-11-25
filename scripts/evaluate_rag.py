@@ -1,3 +1,4 @@
+"""RAG 评估脚本模块，负责运行检索黄金集门禁。"""
 import json
 import sys
 from dataclasses import asdict
@@ -15,6 +16,12 @@ from interview_loop.evaluation.retrieval import RetrievalCase, evaluate_retrieva
 
 
 def main() -> None:
+    """命令行入口：运行 RAG 检索评估门禁。
+
+    Raises:
+        SystemExit: 当输入、状态或外部依赖不满足要求时抛出 SystemExit。
+
+    """
     dataset = json.loads((ROOT / "datasets" / "rag_golden.json").read_text(encoding="utf-8"))
     documents = dataset["documents"]
     retriever = BM25Retriever.from_texts(
@@ -25,6 +32,16 @@ def main() -> None:
     retriever.k = int(dataset.get("k", 3))
 
     def search(query: str, k: int) -> list[str]:
+        """在 BM25 索引中检索。
+
+        Args:
+            query: `query` 输入参数，类型为 str。
+            k: `k` 输入参数，类型为 int。
+
+        Returns:
+            函数处理结果，类型为 list[str]。
+
+        """
         retriever.k = k
         return [doc.metadata["id"] for doc in retriever.invoke(query)]
 

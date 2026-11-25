@@ -1,3 +1,4 @@
+"""草稿存储模块，负责未完成面试草稿的保存、TTL、清理和删除。"""
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,17 +11,48 @@ RETENTION_DAYS = {"ephemeral": 1, "standard": 30, "extended": 365}
 
 
 def draft_ttl_days(retention_policy: str = "standard") -> int:
+    """计算草稿 TTL 天数。
+
+    Args:
+        retention_policy: `retention_policy` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 int。
+
+    """
     policy_days = RETENTION_DAYS.get(str(retention_policy), 30)
     return max(1, min(DRAFT_MAX_AGE_DAYS, policy_days))
 
 
 def _draft_dir(save_dir: Path) -> Path:
+    """内部辅助：返回并创建草稿目录。
+
+    Args:
+        save_dir: `save_dir` 输入参数，类型为 Path。
+
+    Returns:
+        函数处理结果，类型为 Path。
+
+    """
     path = save_dir / "drafts"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def draft_path(save_dir: Path, session_id: str) -> Path:
+    """返回指定会话的草稿路径。
+
+    Args:
+        save_dir: `save_dir` 输入参数，类型为 Path。
+        session_id: `session_id` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 Path。
+
+    Raises:
+        ValueError: 当输入、状态或外部依赖不满足要求时抛出 ValueError。
+
+    """
     safe_id = "".join(char for char in str(session_id) if char.isalnum() or char in "-_")
     if not safe_id:
         raise ValueError("session_id must contain at least one safe character")
@@ -28,6 +60,19 @@ def draft_path(save_dir: Path, session_id: str) -> Path:
 
 
 def save_interview_draft(save_dir: Path, data: dict[str, Any]) -> Path:
+    """保存面试草稿并写入 TTL。
+
+    Args:
+        save_dir: `save_dir` 输入参数，类型为 Path。
+        data: `data` 输入参数，类型为 dict[str, Any]。
+
+    Returns:
+        函数处理结果，类型为 Path。
+
+    Raises:
+        ValueError: 当输入、状态或外部依赖不满足要求时抛出 ValueError。
+
+    """
     session_id = str(data.get("session_id", "")).strip()
     if not session_id:
         raise ValueError("draft requires session_id")
@@ -42,6 +87,16 @@ def save_interview_draft(save_dir: Path, data: dict[str, Any]) -> Path:
 
 
 def load_interview_draft(save_dir: Path, session_id: str) -> dict[str, Any] | None:
+    """读取指定会话的草稿。
+
+    Args:
+        save_dir: `save_dir` 输入参数，类型为 Path。
+        session_id: `session_id` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 dict[str, Any] | None。
+
+    """
     path = draft_path(save_dir, session_id)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -51,6 +106,15 @@ def load_interview_draft(save_dir: Path, session_id: str) -> dict[str, Any] | No
 
 
 def cleanup_expired_drafts(save_dir: Path) -> int:
+    """删除过期草稿并返回数量。
+
+    Args:
+        save_dir: `save_dir` 输入参数，类型为 Path。
+
+    Returns:
+        函数处理结果，类型为 int。
+
+    """
     directory = _draft_dir(save_dir)
     now = datetime.now(timezone.utc)
     removed = 0
@@ -80,6 +144,16 @@ def latest_interview_draft(
     *,
     require_answers: bool = True,
 ) -> dict[str, Any] | None:
+    """返回最新的可恢复面试草稿。
+
+    Args:
+        save_dir: `save_dir` 输入参数，类型为 Path。
+        require_answers: `require_answers` 关键字参数，类型为 bool。
+
+    Returns:
+        函数处理结果，类型为 dict[str, Any] | None。
+
+    """
     cleanup_expired_drafts(save_dir)
     directory = _draft_dir(save_dir)
     try:
@@ -104,6 +178,13 @@ def latest_interview_draft(
 
 
 def delete_interview_draft(save_dir: Path, session_id: str) -> None:
+    """删除指定会话的草稿。
+
+    Args:
+        save_dir: `save_dir` 输入参数，类型为 Path。
+        session_id: `session_id` 输入参数，类型为 str。
+
+    """
     path = draft_path(save_dir, session_id)
     try:
         path.unlink()

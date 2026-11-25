@@ -1,3 +1,4 @@
+"""问题生成模块，负责阶段提示词、相似问题修复和兜底追问。"""
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
@@ -5,7 +6,26 @@ SIMILARITY_THRESHOLD = 0.82
 
 
 def questions_too_similar(new_question: str, previous_question: str) -> bool:
+    """判断两个问题是否过于相似。
+
+    Args:
+        new_question: `new_question` 输入参数，类型为 str。
+        previous_question: `previous_question` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 bool。
+
+    """
     def normalize(value: str) -> str:
+        """去除标点并转为小写。
+
+        Args:
+            value: `value` 输入参数，类型为 str。
+
+        Returns:
+            函数处理结果，类型为 str。
+
+        """
         return "".join(char.lower() for char in value if char.isalnum())
 
     left = normalize(new_question)
@@ -19,6 +39,7 @@ def questions_too_similar(new_question: str, previous_question: str) -> bool:
 
 @dataclass(frozen=True)
 class StageQuestionPrompt:
+    """阶段问题的系统提示词和当前主题。"""
     system_prompt: str
     current_topic: str
 
@@ -37,6 +58,25 @@ def build_stage_question_prompt(
     last_answer: str,
     job_ctx: str = "",
 ) -> StageQuestionPrompt:
+    """构建带阶段约束的出题提示词。
+
+    Args:
+        mode: `mode` 关键字参数，类型为 str。
+        style: `style` 关键字参数，类型为 str。
+        stage: `stage` 关键字参数，类型为 dict。
+        resume_ctx: `resume_ctx` 关键字参数，类型为 str。
+        weak_stats: `weak_stats` 关键字参数，类型为 dict。
+        main_index: `main_index` 关键字参数，类型为 int。
+        followup_index: `followup_index` 关键字参数，类型为 int。
+        is_followup: `is_followup` 关键字参数，类型为 bool。
+        previous_question: `previous_question` 关键字参数，类型为 str。
+        last_answer: `last_answer` 关键字参数，类型为 str。
+        job_ctx: `job_ctx` 关键字参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 StageQuestionPrompt。
+
+    """
     question_plan = stage.get("question_plan") or stage.get("pool") or [stage["desc"]]
     main_total = max(1, len(question_plan))
     main_index = min(max(0, main_index), main_total - 1)
@@ -68,11 +108,30 @@ def build_stage_question_prompt(
 
 
 def build_repair_prompt(system_prompt: str) -> str:
+    """构建避免重复问题的修复提示词。
+
+    Args:
+        system_prompt: `system_prompt` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     return system_prompt + """
 你上一次生成的问题与上一题过于相似。请重新生成一个不同的题目；如果是追问，必须针对候选人回答中的具体内容。"""
 
 
 def build_similarity_fallback(current_topic: str, last_answer: str) -> str:
+    """生成相似问题的兜底追问。
+
+    Args:
+        current_topic: `current_topic` 输入参数，类型为 str。
+        last_answer: `last_answer` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     answer_excerpt = last_answer.strip().replace("\n", " ")[:60]
     return (
         f"你刚才提到“{answer_excerpt}”，请继续围绕当前主问题“{current_topic}”"

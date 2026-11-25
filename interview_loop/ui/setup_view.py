@@ -1,4 +1,4 @@
-"""Interview setup wizard page."""
+"""Streamlit 面试设置页面模块，负责三步向导、JD/简历上下文、授权和开始面试。"""
 
 from __future__ import annotations
 
@@ -30,6 +30,19 @@ def render_setup_view(
     start_interview: Callable[[dict], None],
     continue_interview: Callable[[], None],
 ) -> None:
+    """渲染三步面试设置向导。
+
+    Args:
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+        reset_interview_state: `reset_interview_state` 关键字参数，类型为 Callable[[], None]。
+        clear_resume_state: `clear_resume_state` 关键字参数，类型为 Callable[[], None]。
+        start_interview: `start_interview` 关键字参数，类型为 Callable[[dict], None]。
+        continue_interview: `continue_interview` 关键字参数，类型为 Callable[[], None]。
+
+    Raises:
+        ValueError: 当输入、状态或外部依赖不满足要求时抛出 ValueError。
+
+    """
     st.header("设置一次面试")
     st.caption("先确定目标，再补充简历和授权信息。")
 

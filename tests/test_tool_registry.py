@@ -1,3 +1,4 @@
+"""测试模块，覆盖工具注册表相关行为和回归场景。"""
 import time
 
 import pytest
@@ -15,6 +16,7 @@ from interview_loop.platform.tool_registry import (
 
 
 def test_register_and_execute_tool():
+    """验证注册和执行工具。"""
     registry = ToolRegistry()
     registry.register(ToolSpec("add", "add numbers", lambda a, b: a + b))
     result = registry.execute("add", a=2, b=3)
@@ -25,6 +27,7 @@ def test_register_and_execute_tool():
 
 
 def test_duplicate_tool_rejected():
+    """验证重复工具被拒绝。"""
     registry = ToolRegistry()
     registry.register(ToolSpec("echo", "echo", lambda value: value))
     with pytest.raises(ValueError):
@@ -32,12 +35,14 @@ def test_duplicate_tool_rejected():
 
 
 def test_missing_tool_raises():
+    """验证缺失工具抛出异常。"""
     registry = ToolRegistry()
     with pytest.raises(ToolNotFoundError):
         registry.get("missing")
 
 
 def test_tool_error_wrapped():
+    """验证工具错误包装。"""
     registry = ToolRegistry()
     registry.register(ToolSpec("fail", "always fail", lambda: 1 / 0))
     with pytest.raises(ToolExecutionError):
@@ -45,6 +50,7 @@ def test_tool_error_wrapped():
 
 
 def test_tool_permission_required():
+    """验证工具权限必需。"""
     registry = ToolRegistry()
     registry.register(
         ToolSpec(
@@ -60,6 +66,7 @@ def test_tool_permission_required():
 
 
 def test_tool_timeout_is_enforced():
+    """验证工具超时判断强制执行。"""
     registry = ToolRegistry()
     registry.register(
         ToolSpec(
@@ -77,6 +84,7 @@ def test_tool_timeout_is_enforced():
 
 
 def test_retry_requires_idempotent_tool():
+    """验证重试需要幂等工具。"""
     registry = ToolRegistry()
     with pytest.raises(ValueError, match="idempotent"):
         registry.register(
@@ -90,9 +98,24 @@ def test_retry_requires_idempotent_tool():
 
 
 def test_idempotent_tool_retries_transient_error():
+    """验证幂等工具重试瞬时错误。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     calls = []
 
     def flaky():
+        """构造按次数失败的工具函数。
+
+        Returns:
+            函数处理结果，类型为 未标注。
+
+        Raises:
+            RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+        """
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError("temporary")
@@ -115,9 +138,19 @@ def test_idempotent_tool_retries_transient_error():
 
 
 def test_idempotency_key_reuses_successful_result():
+    """验证幂等键复用成功结果。"""
     calls = []
 
     def work(value):
+        """构造测试用工具函数。
+
+        Args:
+            value: `value` 输入参数，类型为 未标注。
+
+        Returns:
+            函数处理结果，类型为 未标注。
+
+        """
         calls.append(value)
         return value
 
@@ -144,6 +177,7 @@ def test_idempotency_key_reuses_successful_result():
 
 
 def test_idempotency_key_rejects_different_arguments():
+    """验证幂等键拒绝不同参数。"""
     calls = []
     registry = ToolRegistry()
     registry.register(
@@ -171,6 +205,7 @@ def test_idempotency_key_rejects_different_arguments():
 
 
 def test_audit_events_include_tool_and_tenant_context():
+    """验证审计事件包含工具和租户上下文。"""
     events = []
     registry = ToolRegistry()
     registry.register(ToolSpec("echo", "echo", lambda value: value))
@@ -195,6 +230,7 @@ def test_audit_events_include_tool_and_tenant_context():
 
 
 def test_input_schema_rejects_before_handler_execution():
+    """验证输入Schema拒绝之前处理器执行。"""
     calls = []
     events = []
     registry = ToolRegistry()
@@ -218,6 +254,7 @@ def test_input_schema_rejects_before_handler_execution():
 
 
 def test_output_schema_failure_is_audited():
+    """验证输出 Schema 校验失败会记录审计。"""
     events = []
     registry = ToolRegistry()
     registry.register(

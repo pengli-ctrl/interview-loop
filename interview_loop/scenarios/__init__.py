@@ -1,3 +1,4 @@
+"""scenarios 包的初始化模块，用于声明 Python 包。"""
 from interview_loop.scenarios.models import (
     RubricDimensionSpec,
     ScenarioPack,

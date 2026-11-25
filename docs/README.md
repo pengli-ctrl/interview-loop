@@ -10,8 +10,9 @@
 4. [面试引擎](interview-engine.md)：场景配置、状态机、追问、JD/简历匹配和记录输出。
 5. [评估体系](evaluation.md)：检索评估、Rubric、质量校准、Trace 与回归测试。
 6. [运维手册](operations.md)：配置、启动、Docker、API、数据目录和故障排查。
-7. [产品路线图](product/roadmap.md)：已完成范围、公测前门槛和后续演进。
-8. [架构决策记录](adr/)：关键取舍及其上下文。
+7. [代码注释规范](code-style.md)：模块、类、函数的中文 Google docstring 与推送门禁。
+8. [产品路线图](product/roadmap.md)：已完成范围、公测前门槛和后续演进。
+9. [架构决策记录](adr/)：关键取舍及其上下文。
 
 ## 文档地图
 
@@ -21,6 +22,7 @@
 | [interview-engine.md](interview-engine.md) | 面试如何配置、出题、追问、切换阶段和生成记录？ |
 | [evaluation.md](evaluation.md) | 如何验证检索质量、评分稳定性和 Agent 运行质量？ |
 | [operations.md](operations.md) | 本地、Docker 和 API 如何配置与启动？数据保存在哪里？ |
+| [code-style.md](code-style.md) | 中文 Google docstring 和代码推送门禁如何执行？ |
 | [product/overview.md](product/overview.md) | 产品面向谁、解决什么问题、当前不做什么？ |
 | [product/user-guide.md](product/user-guide.md) | 候选人如何完成一次完整训练闭环？ |
 | [product/roadmap.md](product/roadmap.md) | 已交付什么？距离公测还缺什么？ |

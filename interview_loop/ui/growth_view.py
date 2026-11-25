@@ -1,4 +1,4 @@
-"""Growth history and trend page."""
+"""Streamlit 成长记录页面模块，负责弱项统计、趋势、历史下载和删除确认。"""
 
 from __future__ import annotations
 
@@ -30,6 +30,26 @@ def render_growth_view(
     tenant_snapshot: dict,
     agent_run,
 ) -> None:
+    """渲染成长记录页面。
+
+    Args:
+        mode_list: `mode_list` 关键字参数，类型为 list[str]。
+        mode_config: `mode_config` 关键字参数，类型为 dict。
+        current_mode: `current_mode` 关键字参数，类型为 str。
+        weak_stats: `weak_stats` 关键字参数，类型为 dict。
+        session_files: `session_files` 关键字参数，类型为 list[Path]。
+        record_dir: `record_dir` 关键字参数，类型为 Path。
+        save_weak_stats: `save_weak_stats` 关键字参数，类型为 Callable[[dict], None]。
+        open_session: `open_session` 关键字参数，类型为 Callable[[dict, Path], None]。
+        delete_session: `delete_session` 关键字参数，类型为 Callable[[Path, Path, dict], None]。
+        budget: `budget` 关键字参数，类型为 未标注。
+        tenant_snapshot: `tenant_snapshot` 关键字参数，类型为 dict。
+        agent_run: `agent_run` 关键字参数，类型为 未标注。
+
+    Raises:
+        ValueError: 当输入、状态或外部依赖不满足要求时抛出 ValueError。
+
+    """
     st.header("成长记录")
     st.caption("查看弱项、历史面试和最近一次运行的技术信息。")
 

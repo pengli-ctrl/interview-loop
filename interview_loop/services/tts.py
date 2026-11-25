@@ -1,3 +1,4 @@
+"""语音合成模块，负责火山引擎 TTS 适配和 Demo 占位音频。"""
 import base64
 import json
 from uuid import uuid4
@@ -9,6 +10,18 @@ from interview_loop.services.speech_common import volc_auth_headers
 
 
 def text2audio(text: str) -> bytes:
+    """把文本合成为音频。
+
+    Args:
+        text: `text` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 bytes。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     if DEMO_MODE:
         return b""
     url = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"

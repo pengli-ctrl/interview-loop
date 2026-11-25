@@ -1,15 +1,18 @@
+"""检索评估模块，负责 Precision、Recall、MRR 和 Hit Rate 计算。"""
 from dataclasses import dataclass, field
 from typing import Callable
 
 
 @dataclass(frozen=True)
 class RetrievalCase:
+    """单条检索评估用例。"""
     query: str
     relevant_ids: list[str]
 
 
 @dataclass(frozen=True)
 class RetrievalMetrics:
+    """检索评估指标。"""
     precision: float
     recall: float
     mrr: float
@@ -18,6 +21,7 @@ class RetrievalMetrics:
 
 @dataclass(frozen=True)
 class CaseResult:
+    """单条检索用例结果。"""
     query: str
     retrieved_ids: list[str]
     metrics: RetrievalMetrics
@@ -25,6 +29,7 @@ class CaseResult:
 
 @dataclass(frozen=True)
 class EvaluationReport:
+    """检索评估汇总报告。"""
     k: int
     precision: float
     recall: float
@@ -37,6 +42,17 @@ SearchFn = Callable[[str, int], list[str]]
 
 
 def precision_at_k(retrieved_ids: list[str], relevant_ids: list[str], k: int) -> float:
+    """计算 Precision@K。
+
+    Args:
+        retrieved_ids: `retrieved_ids` 输入参数，类型为 list[str]。
+        relevant_ids: `relevant_ids` 输入参数，类型为 list[str]。
+        k: `k` 输入参数，类型为 int。
+
+    Returns:
+        函数处理结果，类型为 float。
+
+    """
     if k <= 0:
         return 0.0
     top_k = retrieved_ids[:k]
@@ -47,6 +63,17 @@ def precision_at_k(retrieved_ids: list[str], relevant_ids: list[str], k: int) ->
 
 
 def recall_at_k(retrieved_ids: list[str], relevant_ids: list[str], k: int) -> float:
+    """计算 Recall@K。
+
+    Args:
+        retrieved_ids: `retrieved_ids` 输入参数，类型为 list[str]。
+        relevant_ids: `relevant_ids` 输入参数，类型为 list[str]。
+        k: `k` 输入参数，类型为 int。
+
+    Returns:
+        函数处理结果，类型为 float。
+
+    """
     relevant = set(relevant_ids)
     if not relevant:
         return 0.0
@@ -54,6 +81,16 @@ def recall_at_k(retrieved_ids: list[str], relevant_ids: list[str], k: int) -> fl
 
 
 def reciprocal_rank(retrieved_ids: list[str], relevant_ids: list[str]) -> float:
+    """计算倒数排名。
+
+    Args:
+        retrieved_ids: `retrieved_ids` 输入参数，类型为 list[str]。
+        relevant_ids: `relevant_ids` 输入参数，类型为 list[str]。
+
+    Returns:
+        函数处理结果，类型为 float。
+
+    """
     relevant = set(relevant_ids)
     for index, item in enumerate(retrieved_ids, start=1):
         if item in relevant:
@@ -62,6 +99,17 @@ def reciprocal_rank(retrieved_ids: list[str], relevant_ids: list[str]) -> float:
 
 
 def evaluate_case(search_fn: SearchFn, case: RetrievalCase, k: int = 3) -> CaseResult:
+    """评估单条检索用例。
+
+    Args:
+        search_fn: `search_fn` 输入参数，类型为 SearchFn。
+        case: `case` 输入参数，类型为 RetrievalCase。
+        k: `k` 输入参数，类型为 int。
+
+    Returns:
+        函数处理结果，类型为 CaseResult。
+
+    """
     retrieved_ids = search_fn(case.query, k)
     return CaseResult(
         query=case.query,
@@ -80,6 +128,17 @@ def evaluate_retrieval(
     cases: list[RetrievalCase],
     k: int = 3,
 ) -> EvaluationReport:
+    """汇总检索评估指标。
+
+    Args:
+        search_fn: `search_fn` 输入参数，类型为 SearchFn。
+        cases: `cases` 输入参数，类型为 list[RetrievalCase]。
+        k: `k` 输入参数，类型为 int。
+
+    Returns:
+        函数处理结果，类型为 EvaluationReport。
+
+    """
     results = [evaluate_case(search_fn, case, k) for case in cases]
     if not results:
         return EvaluationReport(k=k, precision=0, recall=0, mrr=0, hit_rate=0)

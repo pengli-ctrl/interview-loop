@@ -1,3 +1,4 @@
+"""FastAPI 应用入口模块，负责 API 路由、鉴权、AgentRun、工具执行、指标和 SSE 接口。"""
 import asyncio
 import base64
 import json
@@ -38,6 +39,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 
 
 class CreateRunRequest(BaseModel):
+    """创建 AgentRun 的请求体。"""
     workflow_version: str = "v1"
     metadata: dict = Field(default_factory=dict)
     retention_policy: str = "standard"
@@ -46,6 +48,7 @@ class CreateRunRequest(BaseModel):
 
 
 class AppendEventRequest(BaseModel):
+    """追加事件的请求体。"""
     event_type: str
     node: str
     payload: dict = Field(default_factory=dict)
@@ -53,21 +56,33 @@ class AppendEventRequest(BaseModel):
 
 
 class FailRunRequest(BaseModel):
+    """标记 Run 失败的请求体。"""
     error: str
     node: str = "interview.error"
 
 
 class JobMatchRequest(BaseModel):
+    """岗位匹配请求体。"""
     job_description: str
     resume_text: str = ""
 
 
 class ExecuteToolRequest(BaseModel):
+    """执行工具请求体。"""
     arguments: dict = Field(default_factory=dict)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 def serialize_tool_output(output):
+    """把工具输出转换为 JSON 兼容结构。
+
+    Args:
+        output: `output` 输入参数，类型为 未标注。
+
+    Returns:
+        函数处理结果，类型为 未标注。
+
+    """
     if isinstance(output, bytes):
         return {
             "type": "bytes",
@@ -84,6 +99,20 @@ def create_app(
     tool_registry=None,
     api_key: str | None = None,
 ) -> FastAPI:
+    """创建并装配 FastAPI 应用。
+
+    Args:
+        repository: `repository` 输入参数，类型为 AgentRunRepository | None。
+        tool_registry: `tool_registry` 输入参数，类型为 未标注。
+        api_key: `api_key` 输入参数，类型为 str | None。
+
+    Returns:
+        函数处理结果，类型为 FastAPI。
+
+    Raises:
+        HTTPException: 当输入、状态或外部依赖不满足要求时抛出 HTTPException。
+
+    """
     app = FastAPI(
         title="InterviewLoop Agent API",
         version="0.15.0",
@@ -99,12 +128,44 @@ def create_app(
     )
 
     def repo(request: Request) -> AgentRunRepository:
+        """依赖：返回应用持有的 AgentRun 仓库。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+
+        Returns:
+            函数处理结果，类型为 AgentRunRepository。
+
+        """
         return request.app.state.repository
 
     def principal(request: Request) -> Principal:
+        """依赖：解析并返回当前请求身份。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+
+        Returns:
+            函数处理结果，类型为 Principal。
+
+        """
         return get_principal(request, configured_api_key)
 
     def owned_run(request: Request, run_id: str, current: Principal) -> AgentRun:
+        """依赖：获取当前租户可访问的 AgentRun。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            run_id: `run_id` 输入参数，类型为 str。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 AgentRun。
+
+        Raises:
+            HTTPException: 当输入、状态或外部依赖不满足要求时抛出 HTTPException。
+
+        """
         try:
             run = repo(request).get(run_id)
         except AgentRunNotFoundError as exc:
@@ -115,10 +176,25 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict:
+        """健康检查接口。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {"status": "ok", "service": "interview-loop-api", "version": app.version}
 
     @app.get("/v1/me")
     def me(current: Principal = Depends(principal)) -> dict:
+        """返回当前请求身份。
+
+        Args:
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {
             "tenant_id": current.tenant_id,
             "user_id": current.user_id,
@@ -127,6 +203,16 @@ def create_app(
 
     @app.get("/v1/tools")
     def list_tools(request: Request, current: Principal = Depends(principal)) -> dict:
+        """列出可用工具及权限配置。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {
             "tools": [
                 {
@@ -150,6 +236,16 @@ def create_app(
         request: Request,
         current: Principal = Depends(principal),
     ) -> dict:
+        """列出场景目录。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {"scenarios": request.app.state.scenario_registry.catalog()}
 
     @app.post("/v1/job-match")
@@ -158,6 +254,20 @@ def create_app(
         body: JobMatchRequest,
         current: Principal = Depends(principal),
     ) -> dict:
+        """执行 JD 与简历匹配。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            body: `body` 输入参数，类型为 JobMatchRequest。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        Raises:
+            HTTPException: 当输入、状态或外部依赖不满足要求时抛出 HTTPException。
+
+        """
         try:
             report = assess_job_match(
                 body.job_description,
@@ -174,6 +284,20 @@ def create_app(
         scenario_id: str,
         current: Principal = Depends(principal),
     ) -> dict:
+        """按 ID 返回场景详情。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            scenario_id: `scenario_id` 输入参数，类型为 str。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        Raises:
+            HTTPException: 当输入、状态或外部依赖不满足要求时抛出 HTTPException。
+
+        """
         try:
             return request.app.state.scenario_registry.get(scenario_id).to_dict()
         except ScenarioNotFoundError as exc:
@@ -185,6 +309,20 @@ def create_app(
         body: CreateRunRequest,
         current: Principal = Depends(principal),
     ) -> dict:
+        """创建 AgentRun。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            body: `body` 输入参数，类型为 CreateRunRequest。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        Raises:
+            HTTPException: 当输入、状态或外部依赖不满足要求时抛出 HTTPException。
+
+        """
         if not body.consent_granted:
             raise HTTPException(
                 status_code=422,
@@ -209,6 +347,16 @@ def create_app(
         request: Request,
         current: Principal = Depends(principal),
     ) -> dict:
+        """列出当前租户的 AgentRun。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {
             "runs": [run.to_dict() for run in repo(request).list(current.tenant_id)]
         }
@@ -218,6 +366,16 @@ def create_app(
         request: Request,
         current: Principal = Depends(principal),
     ) -> dict:
+        """返回当前租户的 Agent 指标汇总。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         runs = [
             run.to_dict() for run in repo(request).list(current.tenant_id)
         ]
@@ -229,6 +387,17 @@ def create_app(
         run_id: str,
         current: Principal = Depends(principal),
     ) -> dict:
+        """获取指定 AgentRun。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            run_id: `run_id` 输入参数，类型为 str。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return owned_run(request, run_id, current).to_dict()
 
     @app.get("/v1/agent-runs/{run_id}/export")
@@ -237,6 +406,17 @@ def create_app(
         run_id: str,
         current: Principal = Depends(principal),
     ) -> JSONResponse:
+        """导出指定 AgentRun。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            run_id: `run_id` 输入参数，类型为 str。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 JSONResponse。
+
+        """
         run = owned_run(request, run_id, current)
         return JSONResponse(
             content=run.to_dict(),
@@ -251,6 +431,17 @@ def create_app(
         run_id: str,
         current: Principal = Depends(principal),
     ) -> Response:
+        """删除指定 AgentRun。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            run_id: `run_id` 输入参数，类型为 str。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 Response。
+
+        """
         run = owned_run(request, run_id, current)
         repo(request).delete(run.run_id)
         return Response(status_code=204)
@@ -261,6 +452,17 @@ def create_app(
         run_id: str,
         current: Principal = Depends(principal),
     ) -> dict:
+        """启动指定 AgentRun。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            run_id: `run_id` 输入参数，类型为 str。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         run = owned_run(request, run_id, current)
         run.start()
         return repo(request).save(run).to_dict()
@@ -272,6 +474,18 @@ def create_app(
         body: AppendEventRequest,
         current: Principal = Depends(principal),
     ) -> dict:
+        """向 AgentRun 追加事件。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            run_id: `run_id` 输入参数，类型为 str。
+            body: `body` 输入参数，类型为 AppendEventRequest。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         run = owned_run(request, run_id, current)
         run.record_event(body.event_type, body.node, body.payload, body.duration_ms)
         return repo(request).save(run).to_dict()
@@ -282,6 +496,17 @@ def create_app(
         run_id: str,
         current: Principal = Depends(principal),
     ) -> dict:
+        """把 AgentRun 标记为完成。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            run_id: `run_id` 输入参数，类型为 str。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         run = owned_run(request, run_id, current)
         run.complete()
         return repo(request).save(run).to_dict()
@@ -293,6 +518,18 @@ def create_app(
         body: FailRunRequest,
         current: Principal = Depends(principal),
     ) -> dict:
+        """把 AgentRun 标记为失败。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            run_id: `run_id` 输入参数，类型为 str。
+            body: `body` 输入参数，类型为 FailRunRequest。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         run = owned_run(request, run_id, current)
         run.fail(body.error, body.node)
         return repo(request).save(run).to_dict()
@@ -305,6 +542,22 @@ def create_app(
         body: ExecuteToolRequest,
         current: Principal = Depends(principal),
     ) -> dict:
+        """在 AgentRun 中执行工具。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            run_id: `run_id` 输入参数，类型为 str。
+            tool_name: `tool_name` 输入参数，类型为 str。
+            body: `body` 输入参数，类型为 ExecuteToolRequest。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        Raises:
+            HTTPException: 当输入、状态或外部依赖不满足要求时抛出 HTTPException。
+
+        """
         run = owned_run(request, run_id, current)
         if run.status is not RunStatus.RUNNING:
             raise HTTPException(status_code=409, detail="Agent run is not running")
@@ -325,6 +578,12 @@ def create_app(
             )
 
         def audit(event: ToolAuditEvent) -> None:
+            """把工具审计事件写入当前 AgentRun。
+
+            Args:
+                event: `event` 输入参数，类型为 ToolAuditEvent。
+
+            """
             run.record_event(
                 event.event_type,
                 f"tool.{event.tool_name}",
@@ -378,9 +637,26 @@ def create_app(
         run_id: str,
         current: Principal = Depends(principal),
     ) -> StreamingResponse:
+        """通过 SSE 流式返回 AgentRun 事件。
+
+        Args:
+            request: `request` 输入参数，类型为 Request。
+            run_id: `run_id` 输入参数，类型为 str。
+            current: `current` 输入参数，类型为 Principal。
+
+        Returns:
+            函数处理结果，类型为 StreamingResponse。
+
+        """
         owned_run(request, run_id, current)
 
         async def event_generator():
+            """生成 SSE 事件流。
+
+            Returns:
+                生成迭代结果。
+
+            """
             last_index = 0
             keepalive_ticks = 0
             while True:

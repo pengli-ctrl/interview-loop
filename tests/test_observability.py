@@ -1,3 +1,4 @@
+"""测试模块，覆盖可观测性相关行为和回归场景。"""
 import json
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from interview_loop.evaluation.replay import ReplayError, replay_agent_run
 
 
 def test_quality_golden_dataset_passes_thresholds():
+    """验证质量黄金集通过阈值。"""
     root = Path(__file__).resolve().parents[1]
     dataset = json.loads(
         (root / "datasets" / "quality_golden.json").read_text(encoding="utf-8")
@@ -23,11 +25,13 @@ def test_quality_golden_dataset_passes_thresholds():
 
 
 def test_percentile_interpolates_values():
+    """验证百分位插值计算。"""
     assert percentile([100, 300], 0.5) == 200
     assert percentile([100, 300], 0.95) == 290
 
 
 def test_summarize_agent_runs_reports_latency_quality_and_failures():
+    """验证汇总Agent运行报告延迟质量和失败。"""
     runs = [
         {
             "status": "completed",
@@ -85,6 +89,7 @@ def test_summarize_agent_runs_reports_latency_quality_and_failures():
 
 
 def test_trace_replay_reconstructs_completed_stage_sequence():
+    """验证Trace重放重建已完成阶段顺序。"""
     run = {
         "run_id": "run-1",
         "trace_id": "trace-1",
@@ -112,6 +117,7 @@ def test_trace_replay_reconstructs_completed_stage_sequence():
 
 
 def test_trace_replay_rejects_invalid_transition():
+    """验证Trace重放拒绝无效切换。"""
     run = {
         "run_id": "run-1",
         "trace_id": "trace-1",

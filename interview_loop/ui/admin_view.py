@@ -1,4 +1,4 @@
-"""Read-only platform control plane presentation."""
+"""Streamlit 管理控制台页面模块，负责展示场景、模型、工具、AgentRun 和评估指标。"""
 
 from __future__ import annotations
 
@@ -34,6 +34,19 @@ def render_admin_view(
     rag_metrics: dict,
     tenant_id: str,
 ) -> None:
+    """渲染只读平台控制台。
+
+    Args:
+        registry: `registry` 关键字参数，类型为 未标注。
+        tool_registry: `tool_registry` 关键字参数，类型为 未标注。
+        model_gateway: `model_gateway` 关键字参数，类型为 未标注。
+        tenant_quota_store: `tenant_quota_store` 关键字参数，类型为 未标注。
+        base_dir: `base_dir` 关键字参数，类型为 Path。
+        db_path: `db_path` 关键字参数，类型为 Path。
+        rag_metrics: `rag_metrics` 关键字参数，类型为 dict。
+        tenant_id: `tenant_id` 关键字参数，类型为 str。
+
+    """
     st.header("平台控制台")
     st.caption("本地只读控制面：展示真实场景、模型、工具、运行轨迹和评估数据。")
 

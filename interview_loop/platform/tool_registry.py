@@ -1,3 +1,4 @@
+"""工具注册表模块，负责工具注册、权限、Schema、超时、幂等和审计。"""
 import base64
 import hashlib
 import threading
@@ -12,31 +13,38 @@ from interview_loop.platform.privacy import redact_pii
 
 
 class ToolNotFoundError(LookupError):
+    """表示工具不存在的异常。"""
     pass
 
 
 class ToolExecutionError(RuntimeError):
+    """表示工具执行失败的异常。"""
     pass
 
 
 class ToolTimeoutError(ToolExecutionError):
+    """表示工具超时的异常。"""
     pass
 
 
 class ToolPermissionError(PermissionError):
+    """表示工具权限不足的异常。"""
     pass
 
 
 class ToolIdempotencyConflictError(RuntimeError):
+    """表示工具幂等冲突的异常。"""
     pass
 
 
 class ToolSchemaError(ValueError):
+    """表示工具 Schema 校验失败的异常。"""
     pass
 
 
 @dataclass(frozen=True)
 class ToolSpec:
+    """工具规格。"""
     name: str
     description: str
     handler: Callable[..., Any]
@@ -52,6 +60,7 @@ class ToolSpec:
 
 @dataclass(frozen=True)
 class ToolResult:
+    """工具执行结果。"""
     tool_name: str
     output: Any
     duration_ms: int
@@ -62,6 +71,7 @@ class ToolResult:
 
 @dataclass(frozen=True)
 class ToolAuditEvent:
+    """工具审计事件。"""
     tool_name: str
     event_type: str
     status: str
@@ -76,6 +86,12 @@ class ToolAuditEvent:
     error: str | None = None
 
     def to_payload(self) -> dict:
+        """转换为可序列化负载。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {
             "tool_name": self.tool_name,
             "tool_version": self.tool_version,
@@ -92,6 +108,15 @@ class ToolAuditEvent:
 
 
 def _argument_digest(kwargs: dict[str, Any]) -> str:
+    """计算参数摘要用于幂等键。
+
+    Args:
+        kwargs: `kwargs` 输入参数，类型为 dict[str, Any]。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     raw = repr(sorted(kwargs.items(), key=lambda item: item[0])).encode(
         "utf-8", errors="replace"
     )
@@ -102,9 +127,24 @@ def _invoke_with_timeout(
     spec: ToolSpec,
     kwargs: dict[str, Any],
 ) -> Any:
+    """在线程中带超时调用工具。
+
+    Args:
+        spec: `spec` 输入参数，类型为 ToolSpec。
+        kwargs: `kwargs` 输入参数，类型为 dict[str, Any]。
+
+    Returns:
+        函数处理结果，类型为 Any。
+
+    Raises:
+        ToolTimeoutError: 当输入、状态或外部依赖不满足要求时抛出 ToolTimeoutError。
+        outcome['error']: 当工具执行失败时重新抛出工具异常。
+
+    """
     outcome: dict[str, Any] = {}
 
     def target() -> None:
+        """在线程中执行工具并把结果写入 outcome。"""
         try:
             outcome["output"] = spec.handler(**kwargs)
         except BaseException as exc:
@@ -132,7 +172,9 @@ def _invoke_with_timeout(
 
 
 class ToolRegistry:
+    """工具注册表。"""
     def __init__(self) -> None:
+        """初始化工具注册表。"""
         self._tools: dict[str, ToolSpec] = {}
         self._cache_lock = threading.Lock()
         self._idempotency_locks: dict[tuple[str, str, str], threading.Lock] = {}
@@ -142,6 +184,15 @@ class ToolRegistry:
         self._cache_max_entries = 1000
 
     def register(self, spec: ToolSpec) -> None:
+        """注册工具。
+
+        Args:
+            spec: `spec` 输入参数，类型为 ToolSpec。
+
+        Raises:
+            ValueError: 当输入、状态或外部依赖不满足要求时抛出 ValueError。
+
+        """
         if spec.name in self._tools:
             raise ValueError(f"Tool already registered: {spec.name}")
         if spec.timeout_seconds <= 0:
@@ -155,9 +206,27 @@ class ToolRegistry:
         self._tools[spec.name] = spec
 
     def list_tools(self) -> list[ToolSpec]:
+        """列出已注册工具。
+
+        Returns:
+            函数处理结果，类型为 list[ToolSpec]。
+
+        """
         return list(self._tools.values())
 
     def get(self, name: str) -> ToolSpec:
+        """按名称获取工具。
+
+        Args:
+            name: `name` 输入参数，类型为 str。
+
+        Returns:
+            函数处理结果，类型为 ToolSpec。
+
+        Raises:
+            ToolNotFoundError: 当输入、状态或外部依赖不满足要求时抛出 ToolNotFoundError。
+
+        """
         try:
             return self._tools[name]
         except KeyError as exc:
@@ -176,6 +245,25 @@ class ToolRegistry:
         audit_sink: Callable[[ToolAuditEvent], None] | None = None,
         **kwargs: Any,
     ) -> ToolResult:
+        """执行工具并处理权限、重试和审计。
+
+        Args:
+            name: `name` 输入参数，类型为 str。
+            permissions: `permissions` 关键字参数，类型为 set[str] | frozenset[str] | None。
+            idempotency_key: `idempotency_key` 关键字参数，类型为 str | None。
+            tenant_id: `tenant_id` 关键字参数，类型为 str。
+            user_id: `user_id` 关键字参数，类型为 str。
+            run_id: `run_id` 关键字参数，类型为 str | None。
+            audit_sink: `audit_sink` 关键字参数，类型为 Callable[[ToolAuditEvent], None] | None。
+            **kwargs: 可变关键字参数，类型为 Any。
+
+        Returns:
+            函数处理结果，类型为 ToolResult。
+
+        Raises:
+            ToolPermissionError: 当输入、状态或外部依赖不满足要求时抛出 ToolPermissionError。
+
+        """
         spec = self.get(name)
         input_digest = _argument_digest(kwargs)
         if spec.required_permission and spec.required_permission not in (
@@ -330,6 +418,25 @@ class ToolRegistry:
         input_digest: str,
         idempotency_key: str | None,
     ) -> ToolResult:
+        """按重试策略执行工具调用。
+
+        Args:
+            spec: `spec` 关键字参数，类型为 ToolSpec。
+            kwargs: `kwargs` 关键字参数，类型为 dict[str, Any]。
+            audit_sink: `audit_sink` 关键字参数，类型为 Callable[[ToolAuditEvent], None] | None。
+            tenant_id: `tenant_id` 关键字参数，类型为 str。
+            user_id: `user_id` 关键字参数，类型为 str。
+            run_id: `run_id` 关键字参数，类型为 str | None。
+            input_digest: `input_digest` 关键字参数，类型为 str。
+            idempotency_key: `idempotency_key` 关键字参数，类型为 str | None。
+
+        Returns:
+            函数处理结果，类型为 ToolResult。
+
+        Raises:
+            ToolExecutionError: 当输入、状态或外部依赖不满足要求时抛出 ToolExecutionError。
+
+        """
         attempts_allowed = 1 + (spec.max_retries if spec.idempotent else 0)
         started = perf_counter()
         last_error: Exception | None = None
@@ -454,6 +561,17 @@ class ToolRegistry:
         value: Any,
         direction: str,
     ) -> None:
+        """内部辅助：校验输入或输出 Schema。
+
+        Args:
+            schema: `schema` 输入参数，类型为 dict | None。
+            value: `value` 输入参数，类型为 Any。
+            direction: `direction` 输入参数，类型为 str。
+
+        Raises:
+            ToolSchemaError: 当输入、状态或外部依赖不满足要求时抛出 ToolSchemaError。
+
+        """
         if schema is None:
             return
         normalized = ToolRegistry._schema_value(value)
@@ -471,6 +589,15 @@ class ToolRegistry:
 
     @staticmethod
     def _schema_value(value: Any) -> Any:
+        """内部辅助：读取 Schema 字段值。
+
+        Args:
+            value: `value` 输入参数，类型为 Any。
+
+        Returns:
+            函数处理结果，类型为 Any。
+
+        """
         if isinstance(value, bytes):
             return {
                 "type": "bytes",
@@ -489,6 +616,15 @@ class ToolRegistry:
         return value
 
     def _lock_for(self, key: tuple[str, str, str]) -> threading.Lock:
+        """内部辅助：按幂等键获取锁。
+
+        Args:
+            key: `key` 输入参数，类型为 tuple[str, str, str]。
+
+        Returns:
+            函数处理结果，类型为 threading.Lock。
+
+        """
         with self._cache_lock:
             return self._idempotency_locks.setdefault(key, threading.Lock())
 
@@ -497,6 +633,19 @@ class ToolRegistry:
         key: tuple[str, str, str],
         input_digest: str,
     ) -> ToolResult | None:
+        """内部辅助：读取幂等缓存。
+
+        Args:
+            key: `key` 输入参数，类型为 tuple[str, str, str]。
+            input_digest: `input_digest` 输入参数，类型为 str。
+
+        Returns:
+            函数处理结果，类型为 ToolResult | None。
+
+        Raises:
+            ToolIdempotencyConflictError: 当输入、状态或外部依赖不满足要求时抛出 ToolIdempotencyConflictError。
+
+        """
         with self._cache_lock:
             entry = self._cache_entries.get(key)
             if entry is None:
@@ -518,6 +667,15 @@ class ToolRegistry:
         ttl_seconds: int,
         input_digest: str,
     ) -> None:
+        """内部辅助：写入幂等缓存。
+
+        Args:
+            key: `key` 输入参数，类型为 tuple[str, str, str]。
+            result: `result` 输入参数，类型为 ToolResult。
+            ttl_seconds: `ttl_seconds` 输入参数，类型为 int。
+            input_digest: `input_digest` 输入参数，类型为 str。
+
+        """
         now = perf_counter()
         with self._cache_lock:
             expired = [
@@ -544,6 +702,20 @@ class ToolRegistry:
         attempt: int,
         error: Exception,
     ) -> None:
+        """内部辅助：记录重试审计事件。
+
+        Args:
+            audit_sink: `audit_sink` 输入参数，类型为 Callable[[ToolAuditEvent], None] | None。
+            spec: `spec` 输入参数，类型为 ToolSpec。
+            tenant_id: `tenant_id` 输入参数，类型为 str。
+            user_id: `user_id` 输入参数，类型为 str。
+            run_id: `run_id` 输入参数，类型为 str | None。
+            input_digest: `input_digest` 输入参数，类型为 str。
+            idempotency_key: `idempotency_key` 输入参数，类型为 str | None。
+            attempt: `attempt` 输入参数，类型为 int。
+            error: `error` 输入参数，类型为 Exception。
+
+        """
         self._audit(
             audit_sink,
             ToolAuditEvent(
@@ -576,6 +748,22 @@ class ToolRegistry:
         duration_ms: int,
         error: Exception,
     ) -> None:
+        """内部辅助：记录失败审计事件。
+
+        Args:
+            audit_sink: `audit_sink` 输入参数，类型为 Callable[[ToolAuditEvent], None] | None。
+            spec: `spec` 输入参数，类型为 ToolSpec。
+            status: `status` 输入参数，类型为 str。
+            tenant_id: `tenant_id` 输入参数，类型为 str。
+            user_id: `user_id` 输入参数，类型为 str。
+            run_id: `run_id` 输入参数，类型为 str | None。
+            input_digest: `input_digest` 输入参数，类型为 str。
+            idempotency_key: `idempotency_key` 输入参数，类型为 str | None。
+            attempts: `attempts` 输入参数，类型为 int。
+            duration_ms: `duration_ms` 输入参数，类型为 int。
+            error: `error` 输入参数，类型为 Exception。
+
+        """
         self._audit(
             audit_sink,
             ToolAuditEvent(
@@ -599,6 +787,13 @@ class ToolRegistry:
         audit_sink: Callable[[ToolAuditEvent], None] | None,
         event: ToolAuditEvent,
     ) -> None:
+        """内部辅助：写入审计事件。
+
+        Args:
+            audit_sink: `audit_sink` 输入参数，类型为 Callable[[ToolAuditEvent], None] | None。
+            event: `event` 输入参数，类型为 ToolAuditEvent。
+
+        """
         if audit_sink is None:
             return
         try:

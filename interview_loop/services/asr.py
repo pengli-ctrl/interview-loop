@@ -1,3 +1,4 @@
+"""语音识别模块，负责火山引擎 ASR 适配和 Demo 占位识别。"""
 import base64
 from uuid import uuid4
 
@@ -10,6 +11,19 @@ from interview_loop.services.speech_common import volc_auth_headers
 
 
 def audio2text(audio_bytes: bytes) -> str:
+    """把音频转写为文本。
+
+    Args:
+        audio_bytes: `audio_bytes` 输入参数，类型为 bytes。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    Raises:
+        ValueError: 当输入、状态或外部依赖不满足要求时抛出 ValueError。
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     if DEMO_MODE:
         return DEMO_ANSWER
     if not audio_bytes:

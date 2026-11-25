@@ -1,9 +1,20 @@
+"""Agent 指标模块，负责汇总运行失败率、延迟、成本、重试、重复问题和阶段遵守率。"""
 import math
 
 from interview_loop.core.question_engine import questions_too_similar
 
 
 def percentile(values: list[float], quantile: float) -> float:
+    """计算给定分位的指标值。
+
+    Args:
+        values: `values` 输入参数，类型为 list[float]。
+        quantile: `quantile` 输入参数，类型为 float。
+
+    Returns:
+        函数处理结果，类型为 float。
+
+    """
     if not values:
         return 0.0
     ordered = sorted(values)
@@ -19,6 +30,15 @@ def percentile(values: list[float], quantile: float) -> float:
 
 
 def summarize_agent_runs(runs: list[dict]) -> dict:
+    """汇总 AgentRun 的延迟、成本、失败和重试指标。
+
+    Args:
+        runs: `runs` 输入参数，类型为 list[dict]。
+
+    Returns:
+        函数处理结果，类型为 dict。
+
+    """
     events = [
         event
         for run in runs

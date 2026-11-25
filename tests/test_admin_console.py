@@ -1,3 +1,4 @@
+"""测试模块，覆盖管理控制台相关行为和回归场景。"""
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -22,6 +23,12 @@ from interview_loop.scenarios import get_default_registry
 
 
 def test_control_plane_summary_rows(tmp_path):
+    """验证控制台摘要行。
+
+    Args:
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    """
     registry = get_default_registry()
     assert len(scenario_rows(registry)) == 4
     assert len(tool_rows(build_default_tool_registry())) >= 5
@@ -41,6 +48,16 @@ def test_control_plane_summary_rows(tmp_path):
 
 
 def _prepare_app(monkeypatch, tmp_path):
+    """准备测试应用和临时数据库。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    Returns:
+        函数处理结果，类型为 未标注。
+
+    """
     monkeypatch.setattr(config, "SAVE_DIR", tmp_path / "sessions")
     monkeypatch.setattr(config, "RECORD_DIR", tmp_path / "records")
     monkeypatch.setattr(config, "GLOBAL_STATS_PATH", tmp_path / "weak_stats.json")
@@ -50,6 +67,13 @@ def _prepare_app(monkeypatch, tmp_path):
 
 
 def test_admin_hidden_by_default_and_direct_access_redirects(monkeypatch, tmp_path):
+    """验证管理台默认隐藏且直接访问会重定向。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    """
     monkeypatch.setattr(config, "ADMIN_MODE", False)
     app_path, _ = _prepare_app(monkeypatch, tmp_path)
     at = AppTest.from_file(str(app_path), default_timeout=30).run()
@@ -63,6 +87,13 @@ def test_admin_hidden_by_default_and_direct_access_redirects(monkeypatch, tmp_pa
 
 
 def test_admin_console_reads_real_scenario_tool_run_and_eval_data(monkeypatch, tmp_path):
+    """验证管理台读取真实场景、工具、Run 和评估数据。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    """
     monkeypatch.setattr(config, "ADMIN_MODE", True)
     app_path, db_path = _prepare_app(monkeypatch, tmp_path)
     repository = SQLiteAgentRunRepository(db_path)
@@ -83,6 +114,7 @@ def test_admin_console_reads_real_scenario_tool_run_and_eval_data(monkeypatch, t
 
 
 def test_admin_formatting_helpers_do_not_render_python_dicts():
+    """验证管理台格式化辅助函数不输出 Python 字典。"""
     rag = format_rag_thresholds({"precision": 0.3, "recall": 0.9, "mrr": 0.9, "hit_rate": 0.9})
     quality = format_quality_thresholds({"weighted_mae": 0.75, "max_case_mae": 1.0})
     quota = format_quota_snapshot({"used_tokens": 10, "max_tokens": 100, "used_cost": 0.12, "max_cost": 5.0})
@@ -95,4 +127,5 @@ def test_admin_formatting_helpers_do_not_render_python_dicts():
 
 
 def test_admin_timestamp_is_rendered_in_china_time():
+    """验证管理台时间戳按本地时间渲染。"""
     assert format_local_time("2026-11-25T12:29:28.923294+00:00") == "2026-11-25 20:29:28"

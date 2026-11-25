@@ -1,4 +1,4 @@
-"""Reusable Streamlit presentation components."""
+"""Streamlit 通用组件模块，负责 CSS、chips、指标网格和评分卡片。"""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ RETENTION_OPTIONS = {
 
 
 def inject_ui_css() -> None:
+    """注入 InterviewLoop 的全局 UI 样式。"""
     st.markdown(
         """
         <style>
@@ -62,6 +63,12 @@ def inject_ui_css() -> None:
 
 
 def render_chips(items: list[tuple[str, str]]) -> None:
+    """渲染一组轻量信息标签。
+
+    Args:
+        items: `items` 输入参数，类型为 list[tuple[str, str]]。
+
+    """
     chips = "".join(
         f'<span class="il-chip"><b>{html.escape(str(label))}</b>'
         f"{html.escape(str(value))}</span>"
@@ -71,6 +78,12 @@ def render_chips(items: list[tuple[str, str]]) -> None:
 
 
 def render_metric_grid(items: list[tuple[str, str]]) -> None:
+    """按两列网格渲染指标。
+
+    Args:
+        items: `items` 输入参数，类型为 list[tuple[str, str]]。
+
+    """
     for start in range(0, len(items), 2):
         columns = st.columns(2)
         for column, (label, value) in zip(columns, items[start : start + 2]):
@@ -78,6 +91,12 @@ def render_metric_grid(items: list[tuple[str, str]]) -> None:
 
 
 def render_score_card(score: float) -> None:
+    """渲染表达结构参考分卡片。
+
+    Args:
+        score: `score` 输入参数，类型为 float。
+
+    """
     st.markdown(
         '<div class="il-score-card">'
         '<div class="il-score-label">表达结构参考分</div>'

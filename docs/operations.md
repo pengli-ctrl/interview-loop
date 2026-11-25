@@ -183,6 +183,7 @@ python scripts/purge_expired_runs.py
 ## 10. 健康检查与验证
 
 ```bash
+python scripts/check_docstrings.py
 ruff check .
 pytest -q
 python scripts/evaluate_rag.py

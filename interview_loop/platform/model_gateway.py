@@ -1,3 +1,4 @@
+"""模型网关模块，负责路由、重试、熔断、预算、租户额度、成本和调用遥测。"""
 import os
 import threading
 from dataclasses import dataclass
@@ -10,19 +11,23 @@ DEFAULT_OUTPUT_COST = float(os.getenv("llm_output_cost_per_million", "6.0"))
 
 
 class ModelUnavailableError(RuntimeError):
+    """表示模型不可用的异常。"""
     pass
 
 
 class BudgetExceededError(RuntimeError):
+    """表示预算超限的异常。"""
     pass
 
 
 class TenantQuotaExceededError(BudgetExceededError):
+    """表示租户配额超限的异常。"""
     pass
 
 
 @dataclass(frozen=True)
 class ModelProfile:
+    """模型调用配置。"""
     provider: str
     model: str
     prompt_version: str
@@ -34,6 +39,7 @@ class ModelProfile:
 
 @dataclass(frozen=True)
 class ModelResult:
+    """模型调用结果。"""
     content: str
     task: str
     provider: str
@@ -49,6 +55,7 @@ class ModelResult:
 
 @dataclass
 class UsageBudget:
+    """单次运行用量预算。"""
     max_tokens: int
     max_cost: float
     used_tokens: int = 0
@@ -56,13 +63,35 @@ class UsageBudget:
 
     @property
     def remaining_tokens(self) -> int:
+        """剩余 Token 数。
+
+        Returns:
+            函数处理结果，类型为 int。
+
+        """
         return max(0, self.max_tokens - self.used_tokens)
 
     @property
     def remaining_cost(self) -> float:
+        """剩余成本。
+
+        Returns:
+            函数处理结果，类型为 float。
+
+        """
         return max(0.0, self.max_cost - self.used_cost)
 
     def check(self, tokens: int, cost: float) -> None:
+        """检查预算是否足够。
+
+        Args:
+            tokens: `tokens` 输入参数，类型为 int。
+            cost: `cost` 输入参数，类型为 float。
+
+        Raises:
+            BudgetExceededError: 当输入、状态或外部依赖不满足要求时抛出 BudgetExceededError。
+
+        """
         next_tokens = self.used_tokens + max(0, int(tokens))
         next_cost = self.used_cost + max(0.0, float(cost))
         if next_tokens > self.max_tokens or next_cost > self.max_cost:
@@ -72,7 +101,16 @@ class UsageBudget:
             )
 
     def add(self, tokens: int, cost: float) -> None:
-        """Charge actual usage, then reject subsequent work if the limit was crossed."""
+        """累加用量并在超限时抛出异常。
+
+        Args:
+            tokens: `tokens` 输入参数，类型为 int。
+            cost: `cost` 输入参数，类型为 float。
+
+        Raises:
+            BudgetExceededError: 当输入、状态或外部依赖不满足要求时抛出 BudgetExceededError。
+
+        """
         self.used_tokens += max(0, int(tokens))
         self.used_cost += max(0.0, float(cost))
         if self.used_tokens > self.max_tokens or self.used_cost > self.max_cost:
@@ -82,6 +120,12 @@ class UsageBudget:
             )
 
     def to_dict(self) -> dict:
+        """转换为字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {
             "max_tokens": self.max_tokens,
             "used_tokens": self.used_tokens,
@@ -94,6 +138,7 @@ class UsageBudget:
 
 @dataclass(frozen=True)
 class TenantQuota:
+    """租户滚动配额。"""
     max_tokens: int
     max_cost: float
     window_seconds: float = 86400
@@ -101,13 +146,14 @@ class TenantQuota:
 
 @dataclass
 class TenantUsage:
+    """租户滚动用量。"""
     window_started: float
     used_tokens: int = 0
     used_cost: float = 0.0
 
 
 class TenantQuotaStore:
-    """Process-local rolling tenant quota used by the current single-process slice."""
+    """进程内租户配额存储。"""
 
     def __init__(
         self,
@@ -115,12 +161,28 @@ class TenantQuotaStore:
         *,
         clock: Callable[[], float] = perf_counter,
     ) -> None:
+        """初始化租户配额存储。
+
+        Args:
+            quota: `quota` 输入参数，类型为 TenantQuota。
+            clock: `clock` 关键字参数，类型为 Callable[[], float]。
+
+        """
         self.quota = quota
         self._clock = clock
         self._lock = threading.Lock()
         self._usage: dict[str, TenantUsage] = {}
 
     def _current_usage(self, tenant_id: str) -> TenantUsage:
+        """内部辅助：读取当前窗口用量。
+
+        Args:
+            tenant_id: `tenant_id` 输入参数，类型为 str。
+
+        Returns:
+            函数处理结果，类型为 TenantUsage。
+
+        """
         now = self._clock()
         usage = self._usage.get(tenant_id)
         if usage is None or now - usage.window_started >= self.quota.window_seconds:
@@ -129,6 +191,17 @@ class TenantQuotaStore:
         return usage
 
     def check(self, tenant_id: str, tokens: int, cost: float) -> None:
+        """检查租户配额是否足够。
+
+        Args:
+            tenant_id: `tenant_id` 输入参数，类型为 str。
+            tokens: `tokens` 输入参数，类型为 int。
+            cost: `cost` 输入参数，类型为 float。
+
+        Raises:
+            TenantQuotaExceededError: 当输入、状态或外部依赖不满足要求时抛出 TenantQuotaExceededError。
+
+        """
         with self._lock:
             usage = self._current_usage(tenant_id)
             next_tokens = usage.used_tokens + max(0, int(tokens))
@@ -144,12 +217,29 @@ class TenantQuotaStore:
                 )
 
     def add(self, tenant_id: str, tokens: int, cost: float) -> None:
+        """累加租户用量并检查配额。
+
+        Args:
+            tenant_id: `tenant_id` 输入参数，类型为 str。
+            tokens: `tokens` 输入参数，类型为 int。
+            cost: `cost` 输入参数，类型为 float。
+
+        """
         with self._lock:
             usage = self._current_usage(tenant_id)
             usage.used_tokens += max(0, int(tokens))
             usage.used_cost += max(0.0, float(cost))
 
     def snapshot(self, tenant_id: str) -> dict:
+        """返回当前租户用量快照。
+
+        Args:
+            tenant_id: `tenant_id` 输入参数，类型为 str。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         with self._lock:
             usage = self._current_usage(tenant_id)
             return {
@@ -164,17 +254,25 @@ class TenantQuotaStore:
 
 @dataclass(frozen=True)
 class CircuitBreakerPolicy:
+    """熔断器策略。"""
     failure_threshold: int = 3
     cooldown_seconds: float = 30.0
 
 
 @dataclass
 class _ProviderCircuitState:
+    """Provider 熔断状态。"""
     failures: int = 0
     opened_at: float | None = None
 
 
 def default_usage_budget() -> UsageBudget:
+    """创建默认单轮用量预算。
+
+    Returns:
+        函数处理结果，类型为 UsageBudget。
+
+    """
     return UsageBudget(
         max_tokens=int(os.getenv("llm_max_tokens_per_run", "200000")),
         max_cost=float(os.getenv("llm_max_cost_per_run", "5.0")),
@@ -182,6 +280,12 @@ def default_usage_budget() -> UsageBudget:
 
 
 def default_tenant_quota_store() -> TenantQuotaStore:
+    """创建默认租户配额存储。
+
+    Returns:
+        函数处理结果，类型为 TenantQuotaStore。
+
+    """
     return TenantQuotaStore(
         TenantQuota(
             max_tokens=int(os.getenv("llm_tenant_max_tokens", "1000000")),
@@ -192,10 +296,20 @@ def default_tenant_quota_store() -> TenantQuotaStore:
 
 
 def estimate_tokens(text: str) -> int:
+    """粗略估算文本 Token 数。
+
+    Args:
+        text: `text` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 int。
+
+    """
     return max(1, len(text) // 4)
 
 
 class ModelGateway:
+    """模型网关。"""
     def __init__(
         self,
         completer: Callable[[str, str], str] | None = None,
@@ -206,6 +320,17 @@ class ModelGateway:
         tenant_quota_store: TenantQuotaStore | None = None,
         clock: Callable[[], float] = perf_counter,
     ) -> None:
+        """初始化模型网关。
+
+        Args:
+            completer: `completer` 输入参数，类型为 Callable[[str, str], str] | None。
+            providers: `providers` 关键字参数，类型为 dict[str, Callable[[str, str], str]] | None。
+            profiles: `profiles` 关键字参数，类型为 dict[str, list[ModelProfile]] | None。
+            circuit_breaker_policy: `circuit_breaker_policy` 关键字参数，类型为 CircuitBreakerPolicy | None。
+            tenant_quota_store: `tenant_quota_store` 关键字参数，类型为 TenantQuotaStore | None。
+            clock: `clock` 关键字参数，类型为 Callable[[], float]。
+
+        """
         if providers is None:
             if completer is None:
                 from interview_loop.services.llm import llm_call
@@ -237,6 +362,15 @@ class ModelGateway:
         self._clock = clock
 
     def profiles_for(self, task: str) -> list[ModelProfile]:
+        """返回指定任务的模型配置列表。
+
+        Args:
+            task: `task` 输入参数，类型为 str。
+
+        Returns:
+            函数处理结果，类型为 list[ModelProfile]。
+
+        """
         return list(
             self._profiles.get(
                 task,
@@ -253,6 +387,22 @@ class ModelGateway:
         budget: UsageBudget | None = None,
         tenant_id: str = "local",
     ) -> ModelResult:
+        """按任务路由调用模型并返回结果。
+
+        Args:
+            task: `task` 输入参数，类型为 str。
+            system_prompt: `system_prompt` 输入参数，类型为 str。
+            user_msg: `user_msg` 输入参数，类型为 str。
+            budget: `budget` 关键字参数，类型为 UsageBudget | None。
+            tenant_id: `tenant_id` 关键字参数，类型为 str。
+
+        Returns:
+            函数处理结果，类型为 ModelResult。
+
+        Raises:
+            ModelUnavailableError: 当输入、状态或外部依赖不满足要求时抛出 ModelUnavailableError。
+
+        """
         errors: list[str] = []
         total_attempts = 0
         input_tokens = estimate_tokens(system_prompt + user_msg)
@@ -325,6 +475,15 @@ class ModelGateway:
         )
 
     def _circuit_available(self, provider_name: str) -> bool:
+        """内部辅助：判断 Provider 是否允许调用。
+
+        Args:
+            provider_name: `provider_name` 输入参数，类型为 str。
+
+        Returns:
+            函数处理结果，类型为 bool。
+
+        """
         if self._breaker_policy.failure_threshold <= 0:
             return True
         with self._breaker_lock:
@@ -342,6 +501,12 @@ class ModelGateway:
             return True
 
     def _record_provider_failure(self, provider_name: str) -> None:
+        """记录 Provider 失败并更新熔断状态。
+
+        Args:
+            provider_name: `provider_name` 输入参数，类型为 str。
+
+        """
         if self._breaker_policy.failure_threshold <= 0:
             return
         with self._breaker_lock:
@@ -354,5 +519,11 @@ class ModelGateway:
                 state.opened_at = self._clock()
 
     def _record_provider_success(self, provider_name: str) -> None:
+        """记录 Provider 成功并重置熔断状态。
+
+        Args:
+            provider_name: `provider_name` 输入参数，类型为 str。
+
+        """
         with self._breaker_lock:
             self._breaker_state[provider_name] = _ProviderCircuitState()

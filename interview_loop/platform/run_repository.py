@@ -1,3 +1,4 @@
+"""AgentRun 持久化模块，负责 SQLite 中的运行、事件、幂等和保留清理。"""
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -9,49 +10,152 @@ from interview_loop.platform.privacy import retention_expires_at
 
 
 class AgentRunNotFoundError(LookupError):
+    """表示 AgentRun 不存在的异常。"""
     pass
 
 
 class AgentRunRepository(Protocol):
-    def create(self, run: AgentRun) -> AgentRun: ...
-    def get(self, run_id: str) -> AgentRun: ...
-    def save(self, run: AgentRun) -> AgentRun: ...
-    def list(self, tenant_id: str | None = None) -> list[AgentRun]: ...
-    def delete(self, run_id: str) -> None: ...
-    def purge_expired(self, at: str | None = None) -> int: ...
+    """AgentRun 仓库接口。"""
+    def create(self, run: AgentRun) -> AgentRun:
+        """创建并保存 Run。
+
+        Args:
+            run: `run` 输入参数，类型为 AgentRun。
+
+        """
+        ...
+    def get(self, run_id: str) -> AgentRun:
+        """按 ID 获取 Run。
+
+        Args:
+            run_id: `run_id` 输入参数，类型为 str。
+
+        """
+        ...
+    def save(self, run: AgentRun) -> AgentRun:
+        """保存 Run。
+
+        Args:
+            run: `run` 输入参数，类型为 AgentRun。
+
+        """
+        ...
+    def list(self, tenant_id: str | None = None) -> list[AgentRun]:
+        """列出 Run。
+
+        Args:
+            tenant_id: `tenant_id` 输入参数，类型为 str | None。
+
+        """
+        ...
+    def delete(self, run_id: str) -> None:
+        """删除 Run。
+
+        Args:
+            run_id: `run_id` 输入参数，类型为 str。
+
+        """
+        ...
+    def purge_expired(self, at: str | None = None) -> int:
+        """清理过期 Run。
+
+        Args:
+            at: `at` 输入参数，类型为 str | None。
+
+        """
+        ...
 
 
 class InMemoryAgentRunRepository:
+    """内存 AgentRun 仓库。"""
     def __init__(self) -> None:
+        """初始化内存仓库。"""
         self._runs: dict[str, AgentRun] = {}
 
     def create(self, run: AgentRun) -> AgentRun:
+        """在内存中创建 Run。
+
+        Args:
+            run: `run` 输入参数，类型为 AgentRun。
+
+        Returns:
+            函数处理结果，类型为 AgentRun。
+
+        """
         self._runs[run.run_id] = run
         return run
 
     def get(self, run_id: str) -> AgentRun:
+        """从内存获取 Run。
+
+        Args:
+            run_id: `run_id` 输入参数，类型为 str。
+
+        Returns:
+            函数处理结果，类型为 AgentRun。
+
+        Raises:
+            AgentRunNotFoundError: 当输入、状态或外部依赖不满足要求时抛出 AgentRunNotFoundError。
+
+        """
         try:
             return self._runs[run_id]
         except KeyError as exc:
             raise AgentRunNotFoundError(run_id) from exc
 
     def save(self, run: AgentRun) -> AgentRun:
+        """更新内存中的 Run。
+
+        Args:
+            run: `run` 输入参数，类型为 AgentRun。
+
+        Returns:
+            函数处理结果，类型为 AgentRun。
+
+        """
         self._runs[run.run_id] = run
         return run
 
     def list(self, tenant_id: str | None = None) -> list[AgentRun]:
+        """列出内存中的 Run。
+
+        Args:
+            tenant_id: `tenant_id` 输入参数，类型为 str | None。
+
+        Returns:
+            函数处理结果，类型为 list[AgentRun]。
+
+        """
         runs = list(self._runs.values())
         if tenant_id is not None:
             runs = [run for run in runs if run.tenant_id == tenant_id]
         return runs
 
     def delete(self, run_id: str) -> None:
+        """删除内存中的 Run。
+
+        Args:
+            run_id: `run_id` 输入参数，类型为 str。
+
+        Raises:
+            AgentRunNotFoundError: 当输入、状态或外部依赖不满足要求时抛出 AgentRunNotFoundError。
+
+        """
         try:
             del self._runs[run_id]
         except KeyError as exc:
             raise AgentRunNotFoundError(run_id) from exc
 
     def purge_expired(self, at: str | None = None) -> int:
+        """清理过期 Run。
+
+        Args:
+            at: `at` 输入参数，类型为 str | None。
+
+        Returns:
+            函数处理结果，类型为 int。
+
+        """
         now = datetime.fromisoformat(at) if at else datetime.now(timezone.utc)
         expired = [
             run_id
@@ -64,17 +168,31 @@ class InMemoryAgentRunRepository:
 
 
 class SQLiteAgentRunRepository:
+    """SQLite AgentRun 仓库。"""
     def __init__(self, db_path: str | Path) -> None:
+        """初始化 SQLite 仓库。
+
+        Args:
+            db_path: `db_path` 输入参数，类型为 str | Path。
+
+        """
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
+        """建立 SQLite 连接。
+
+        Returns:
+            函数处理结果，类型为 sqlite3.Connection。
+
+        """
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
         return connection
 
     def _initialize(self) -> None:
+        """初始化数据库表结构。"""
         with self._connect() as connection:
             connection.executescript(
                 """
@@ -147,6 +265,15 @@ class SQLiteAgentRunRepository:
         column: str,
         definition: str,
     ) -> None:
+        """确保表包含指定列。
+
+        Args:
+            connection: `connection` 输入参数，类型为 sqlite3.Connection。
+            table: `table` 输入参数，类型为 str。
+            column: `column` 输入参数，类型为 str。
+            definition: `definition` 输入参数，类型为 str。
+
+        """
         existing = {
             row["name"] for row in connection.execute(f"PRAGMA table_info({table})")
         }
@@ -156,9 +283,27 @@ class SQLiteAgentRunRepository:
             )
 
     def create(self, run: AgentRun) -> AgentRun:
+        """写入新 Run。
+
+        Args:
+            run: `run` 输入参数，类型为 AgentRun。
+
+        Returns:
+            函数处理结果，类型为 AgentRun。
+
+        """
         return self.save(run)
 
     def save(self, run: AgentRun) -> AgentRun:
+        """更新 Run 及事件。
+
+        Args:
+            run: `run` 输入参数，类型为 AgentRun。
+
+        Returns:
+            函数处理结果，类型为 AgentRun。
+
+        """
         with self._connect() as connection:
             connection.execute(
                 """
@@ -220,6 +365,18 @@ class SQLiteAgentRunRepository:
         return run
 
     def get(self, run_id: str) -> AgentRun:
+        """读取 Run 及事件。
+
+        Args:
+            run_id: `run_id` 输入参数，类型为 str。
+
+        Returns:
+            函数处理结果，类型为 AgentRun。
+
+        Raises:
+            AgentRunNotFoundError: 当输入、状态或外部依赖不满足要求时抛出 AgentRunNotFoundError。
+
+        """
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT * FROM agent_runs WHERE run_id = ?", (run_id,)
@@ -232,6 +389,15 @@ class SQLiteAgentRunRepository:
         return self._to_run(row, event_rows)
 
     def list(self, tenant_id: str | None = None) -> list[AgentRun]:
+        """列出 Run。
+
+        Args:
+            tenant_id: `tenant_id` 输入参数，类型为 str | None。
+
+        Returns:
+            函数处理结果，类型为 list[AgentRun]。
+
+        """
         query = "SELECT * FROM agent_runs"
         params: tuple = ()
         if tenant_id is not None:
@@ -243,6 +409,15 @@ class SQLiteAgentRunRepository:
         return [self.get(row["run_id"]) for row in rows]
 
     def delete(self, run_id: str) -> None:
+        """删除 Run。
+
+        Args:
+            run_id: `run_id` 输入参数，类型为 str。
+
+        Raises:
+            AgentRunNotFoundError: 当输入、状态或外部依赖不满足要求时抛出 AgentRunNotFoundError。
+
+        """
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT run_id FROM agent_runs WHERE run_id = ?", (run_id,)
@@ -253,6 +428,15 @@ class SQLiteAgentRunRepository:
             connection.execute("DELETE FROM agent_runs WHERE run_id = ?", (run_id,))
 
     def purge_expired(self, at: str | None = None) -> int:
+        """清理过期 Run。
+
+        Args:
+            at: `at` 输入参数，类型为 str | None。
+
+        Returns:
+            函数处理结果，类型为 int。
+
+        """
         cutoff = at or datetime.now(timezone.utc).isoformat()
         with self._connect() as connection:
             expired_ids = [
@@ -279,6 +463,16 @@ class SQLiteAgentRunRepository:
 
     @staticmethod
     def _to_run(run_row, event_rows: list) -> AgentRun:
+        """把数据库行转换为 AgentRun。
+
+        Args:
+            run_row: `run_row` 输入参数，类型为 未标注。
+            event_rows: `event_rows` 输入参数，类型为 list。
+
+        Returns:
+            函数处理结果，类型为 AgentRun。
+
+        """
         retention_policy = run_row["retention_policy"] or "standard"
         retention_expiry = run_row["retention_expires_at"] or retention_expires_at(
             retention_policy

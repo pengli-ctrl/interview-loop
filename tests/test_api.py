@@ -1,3 +1,4 @@
+"""测试模块，覆盖 API 相关行为和回归场景。"""
 import time
 
 from fastapi.testclient import TestClient
@@ -11,12 +12,14 @@ client = TestClient(app)
 
 
 def test_health():
+    """验证健康。"""
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
 
 
 def test_tool_catalog():
+    """验证工具目录。"""
     response = client.get("/v1/tools")
     assert response.status_code == 200
     names = {tool["name"] for tool in response.json()["tools"]}
@@ -24,6 +27,7 @@ def test_tool_catalog():
 
 
 def test_run_lifecycle_and_event_append():
+    """验证运行生命周期和事件追加。"""
     headers = {"X-Tenant-Id": "tenant-a", "X-User-Id": "user-a"}
     created = client.post(
         "/v1/agent-runs",
@@ -52,11 +56,13 @@ def test_run_lifecycle_and_event_append():
 
 
 def test_missing_run_returns_404():
+    """验证不存在的 Run 返回 404。"""
     response = client.get("/v1/agent-runs/not-found", headers={"X-Tenant-Id": "tenant-a"})
     assert response.status_code == 404
 
 
 def test_tenant_isolation():
+    """验证租户隔离。"""
     created = client.post(
         "/v1/agent-runs",
         headers={"X-Tenant-Id": "tenant-a"},
@@ -71,6 +77,7 @@ def test_tenant_isolation():
 
 
 def test_api_key_authentication():
+    """验证API键鉴权。"""
     secured = TestClient(create_app(repository=InMemoryAgentRunRepository(), api_key="secret"))
     assert secured.get("/health").status_code == 200
     assert secured.get("/v1/tools").status_code == 401
@@ -78,6 +85,7 @@ def test_api_key_authentication():
 
 
 def test_complete_run_and_stream_events():
+    """验证完成运行和流式事件。"""
     headers = {"X-Tenant-Id": "tenant-stream"}
     created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}, "consent_granted": True})
     run_id = created.json()["run_id"]
@@ -101,6 +109,7 @@ def test_complete_run_and_stream_events():
 
 
 def test_tool_execution_records_audit_and_reuses_idempotency_key():
+    """验证工具执行记录审计和复用幂等键。"""
     headers = {"X-Tenant-Id": "tenant-tools", "X-User-Id": "user-tools"}
     created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}, "consent_granted": True})
     run_id = created.json()["run_id"]
@@ -152,6 +161,7 @@ def test_tool_execution_records_audit_and_reuses_idempotency_key():
 
 
 def test_tool_permission_is_enforced_before_execution():
+    """验证工具权限判断强制执行之前执行。"""
     headers = {"X-Tenant-Id": "tenant-tool-denied"}
     created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}, "consent_granted": True})
     run_id = created.json()["run_id"]
@@ -169,6 +179,7 @@ def test_tool_permission_is_enforced_before_execution():
 
 
 def test_tool_timeout_returns_gateway_timeout_and_is_audited():
+    """验证工具超时返回网关超时并记录审计。"""
     registry = ToolRegistry()
     registry.register(
         ToolSpec(
@@ -211,6 +222,7 @@ def test_tool_timeout_returns_gateway_timeout_and_is_audited():
 
 
 def test_create_run_requires_explicit_consent():
+    """验证创建 Run 需要显式同意。"""
     response = client.post(
         "/v1/agent-runs",
         headers={"X-Tenant-Id": "tenant-consent"},
@@ -221,6 +233,7 @@ def test_create_run_requires_explicit_consent():
 
 
 def test_run_export_and_delete_are_tenant_scoped():
+    """验证 Run 导出和删除按租户隔离。"""
     headers = {"X-Tenant-Id": "tenant-export"}
     created = client.post(
         "/v1/agent-runs",
@@ -250,6 +263,7 @@ def test_run_export_and_delete_are_tenant_scoped():
 
 
 def test_tool_schema_rejection_is_audited():
+    """验证工具 Schema 校验失败会记录审计。"""
     headers = {"X-Tenant-Id": "tenant-schema"}
     created = client.post(
         "/v1/agent-runs",
@@ -271,6 +285,7 @@ def test_tool_schema_rejection_is_audited():
 
 
 def test_metrics_endpoint_summarizes_tenant_runs():
+    """验证指标接口汇总租户 Run。"""
     headers = {"X-Tenant-Id": "tenant-metrics"}
     created = client.post(
         "/v1/agent-runs",
@@ -306,6 +321,7 @@ def test_metrics_endpoint_summarizes_tenant_runs():
 
 
 def test_scenario_catalog_and_detail():
+    """验证场景目录和详情接口。"""
     headers = {"X-Tenant-Id": "tenant-scenarios"}
     catalog = client.get("/v1/scenarios", headers=headers)
     assert catalog.status_code == 200
@@ -329,6 +345,7 @@ def test_scenario_catalog_and_detail():
 
 
 def test_job_match_endpoint():
+    """验证岗位匹配接口。"""
     headers = {"X-Tenant-Id": "tenant-job-match"}
     payload = {
         "job_description": "负责 Python FastAPI Redis RAG 服务开发，要求具备可观测性和分布式系统经验。",

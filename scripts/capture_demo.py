@@ -1,4 +1,4 @@
-"""Capture reproducible InterviewLoop demo screenshots and an animated GIF."""
+"""演示捕获脚本模块，负责启动隔离 Demo、执行 Playwright 流程、截图断言和 GIF 生成。"""
 
 from __future__ import annotations
 
@@ -57,6 +57,16 @@ SESSION_TWO_ANSWERS = (
 
 
 def wait_for_server(url: str, timeout: float = 45.0) -> None:
+    """轮询等待 Streamlit 服务就绪。
+
+    Args:
+        url: `url` 输入参数，类型为 str。
+        timeout: `timeout` 输入参数，类型为 float。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     deadline = time.time() + timeout
     health_url = url.rstrip("/") + "/_stcore/health"
     last_error: Exception | None = None
@@ -72,6 +82,17 @@ def wait_for_server(url: str, timeout: float = 45.0) -> None:
 
 
 def start_server(port: int, admin: bool, log_name: str) -> tuple[subprocess.Popen, object]:
+    """启动隔离的 Demo Streamlit 服务。
+
+    Args:
+        port: `port` 输入参数，类型为 int。
+        admin: `admin` 输入参数，类型为 bool。
+        log_name: `log_name` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 tuple[subprocess.Popen, object]。
+
+    """
     env = os.environ.copy()
     env.update(
         {
@@ -109,6 +130,13 @@ def start_server(port: int, admin: bool, log_name: str) -> tuple[subprocess.Pope
 
 
 def stop_server(process: subprocess.Popen | None, log_handle: object | None) -> None:
+    """停止 Demo 服务进程。
+
+    Args:
+        process: `process` 输入参数，类型为 subprocess.Popen | None。
+        log_handle: `log_handle` 输入参数，类型为 object | None。
+
+    """
     if process is None:
         return
     if process.poll() is None:
@@ -130,6 +158,19 @@ def stop_server(process: subprocess.Popen | None, log_handle: object | None) -> 
 
 
 def launch_browser(playwright: Playwright, headed: bool) -> tuple[Browser, str]:
+    """启动可用的 Playwright 浏览器。
+
+    Args:
+        playwright: `playwright` 输入参数，类型为 Playwright。
+        headed: `headed` 输入参数，类型为 bool。
+
+    Returns:
+        函数处理结果，类型为 tuple[Browser, str]。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     errors: list[str] = []
     candidates = [
         ("chromium", {}),
@@ -146,6 +187,13 @@ def launch_browser(playwright: Playwright, headed: bool) -> tuple[Browser, str]:
 
 
 def wait_for_streamlit_idle(page: Page, timeout: int = 30000) -> None:
+    """等待 Streamlit 完成重跑且无骨架屏。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+        timeout: `timeout` 输入参数，类型为 int。
+
+    """
     page.wait_for_function(
         """
         () => {
@@ -174,6 +222,16 @@ def wait_for_streamlit_idle(page: Page, timeout: int = 30000) -> None:
 
 
 def assert_clean_page(page: Page, context: str) -> None:
+    """断言页面无骨架、运行态或异常。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+        context: `context` 输入参数，类型为 str。
+
+    Raises:
+        AssertionError: 当输入、状态或外部依赖不满足要求时抛出 AssertionError。
+
+    """
     visible_skeletons = page.locator('[data-testid*="Skeleton"]:visible').count()
     if visible_skeletons:
         raise AssertionError(f"{context}: {visible_skeletons} skeleton element(s) are visible")
@@ -190,6 +248,14 @@ def assert_clean_page(page: Page, context: str) -> None:
 
 
 def wait_for_app(page: Page, text: str | None = None, timeout: int = 20000) -> None:
+    """等待应用容器和目标文本出现。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+        text: `text` 输入参数，类型为 str | None。
+        timeout: `timeout` 输入参数，类型为 int。
+
+    """
     page.locator('[data-testid="stAppViewContainer"]').wait_for(timeout=timeout)
     if text:
         page.get_by_text(text, exact=True).first.wait_for(timeout=timeout)
@@ -197,6 +263,14 @@ def wait_for_app(page: Page, text: str | None = None, timeout: int = 20000) -> N
 
 
 def capture(page: Page, name: str, frames: list[Path]) -> None:
+    """截图并记录 GIF 帧。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+        name: `name` 输入参数，类型为 str。
+        frames: `frames` 输入参数，类型为 list[Path]。
+
+    """
     SCREENSHOT_ROOT.mkdir(parents=True, exist_ok=True)
     FRAME_ROOT.mkdir(parents=True, exist_ok=True)
     page.evaluate("document.activeElement && document.activeElement.blur()")
@@ -211,6 +285,14 @@ def capture(page: Page, name: str, frames: list[Path]) -> None:
 
 
 def click_button(page: Page, name: str, timeout: int = 20000) -> None:
+    """点击按钮并等待页面空闲。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+        name: `name` 输入参数，类型为 str。
+        timeout: `timeout` 输入参数，类型为 int。
+
+    """
     button = page.get_by_role("button", name=name, exact=True).first
     button.wait_for(timeout=timeout)
     button.click()
@@ -218,6 +300,18 @@ def click_button(page: Page, name: str, timeout: int = 20000) -> None:
 
 
 def current_interview_question(page: Page) -> str:
+    """读取当前面试题文本。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    Raises:
+        AssertionError: 当输入、状态或外部依赖不满足要求时抛出 AssertionError。
+
+    """
     deadline = time.time() + 20
     while time.time() < deadline:
         for text in page.locator("h2").all_inner_texts():
@@ -234,6 +328,18 @@ def submit_text_answer(
     timeout: int = 30000,
     before_submit: Callable[[], None] | None = None,
 ) -> None:
+    """填写并提交文字回答。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+        answer: `answer` 输入参数，类型为 str。
+        timeout: `timeout` 输入参数，类型为 int。
+        before_submit: `before_submit` 输入参数，类型为 Callable[[], None] | None。
+
+    Raises:
+        AssertionError: 当输入、状态或外部依赖不满足要求时抛出 AssertionError。
+
+    """
     if page.get_by_text("输入文字回答", exact=True).count() == 0:
         text_mode = page.get_by_role("radio", name="文字输入", exact=True)
         text_mode.wait_for(timeout=10000)
@@ -267,6 +373,15 @@ def begin_session(
     upload_resume: bool,
     frames: list[Path],
 ) -> None:
+    """完成设置并开始一场面试。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+        capture_setup: `capture_setup` 关键字参数，类型为 bool。
+        upload_resume: `upload_resume` 关键字参数，类型为 bool。
+        frames: `frames` 关键字参数，类型为 list[Path]。
+
+    """
     if page.get_by_text("下一步：补充简历", exact=True).count() == 0:
         click_button(page, "开始一次面试")
         wait_for_app(page, "下一步：补充简历")
@@ -308,6 +423,16 @@ def run_session(
     upload_resume: bool,
     frames: list[Path],
 ) -> None:
+    """执行一场 Demo 面试并生成复盘。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+        answers: `answers` 输入参数，类型为 tuple[str, str, str]。
+        capture_setup: `capture_setup` 关键字参数，类型为 bool。
+        upload_resume: `upload_resume` 关键字参数，类型为 bool。
+        frames: `frames` 关键字参数，类型为 list[Path]。
+
+    """
     begin_session(
         page,
         capture_setup=capture_setup,
@@ -332,6 +457,13 @@ def run_session(
 
 
 def capture_candidate_flow(page: Page, frames: list[Path]) -> None:
+    """捕获候选人完整流程和关键截图。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+        frames: `frames` 输入参数，类型为 list[Path]。
+
+    """
     page.goto(os.environ["CAPTURE_BASE_URL"], wait_until="domcontentloaded")
     wait_for_app(page, "开始一次面试", timeout=30000)
     capture(page, "dashboard", frames)
@@ -361,6 +493,16 @@ def capture_candidate_flow(page: Page, frames: list[Path]) -> None:
 
 
 def capture_admin(page: Page, frames: list[Path]) -> None:
+    """捕获管理控制台和评估页。
+
+    Args:
+        page: `page` 输入参数，类型为 Page。
+        frames: `frames` 输入参数，类型为 list[Path]。
+
+    Raises:
+        AssertionError: 当输入、状态或外部依赖不满足要求时抛出 AssertionError。
+
+    """
     page.goto(os.environ["CAPTURE_ADMIN_URL"], wait_until="domcontentloaded")
     wait_for_app(page, "管理控制台", timeout=30000)
     page.get_by_text("管理控制台", exact=True).first.click()
@@ -382,6 +524,15 @@ def capture_admin(page: Page, frames: list[Path]) -> None:
 
 
 def build_gif(frames: list[Path]) -> None:
+    """把截图帧合成为演示 GIF。
+
+    Args:
+        frames: `frames` 输入参数，类型为 list[Path]。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     if not frames:
         raise RuntimeError("No frames were captured")
     images: list[Image.Image] = []
@@ -407,6 +558,12 @@ def build_gif(frames: list[Path]) -> None:
 
 
 def verify_artifacts() -> None:
+    """校验截图、会话记录和日志产物。
+
+    Raises:
+        AssertionError: 当输入、状态或外部依赖不满足要求时抛出 AssertionError。
+
+    """
     sessions = sorted(
         path for path in (CAPTURE_ROOT / "sessions").glob("*.json")
         if path.name != "weak_stats.json"
@@ -444,6 +601,12 @@ def verify_artifacts() -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """解析命令行参数。
+
+    Returns:
+        函数处理结果，类型为 argparse.Namespace。
+
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate-port", type=int, default=8502)
     parser.add_argument("--admin-port", type=int, default=8503)
@@ -454,6 +617,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """命令行入口：捕获完整 Demo 并校验产物。
+
+    Returns:
+        函数处理结果，类型为 int。
+
+    """
     args = parse_args()
     if not args.keep_capture and CAPTURE_ROOT.exists():
         shutil.rmtree(CAPTURE_ROOT)

@@ -23,6 +23,9 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Check Chinese Google docstrings
+        run: python scripts/check_docstrings.py
+
       - name: Test
         run: pytest -q
 

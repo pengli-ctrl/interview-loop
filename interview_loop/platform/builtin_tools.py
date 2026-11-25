@@ -1,3 +1,4 @@
+"""内置工具模块，负责注册项目提供的 Agent 工具及权限。"""
 from interview_loop.core.question_engine import questions_too_similar
 from interview_loop.export.markdown import save_markdown_record
 from interview_loop.platform.tool_registry import ToolRegistry, ToolSpec
@@ -28,18 +29,42 @@ QUESTION_SIMILARITY_OUTPUT_SCHEMA = {"type": "boolean"}
 
 
 def _transcribe(audio_bytes: bytes) -> str:
+    """内部辅助：把音频转写为文本。
+
+    Args:
+        audio_bytes: `audio_bytes` 输入参数，类型为 bytes。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     from interview_loop.services.asr import audio2text
 
     return audio2text(audio_bytes)
 
 
 def _synthesize(text: str) -> bytes:
+    """内部辅助：把文本合成为音频。
+
+    Args:
+        text: `text` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 bytes。
+
+    """
     from interview_loop.services.tts import text2audio
 
     return text2audio(text)
 
 
 def build_default_tool_registry() -> ToolRegistry:
+    """构建默认工具注册表。
+
+    Returns:
+        函数处理结果，类型为 ToolRegistry。
+
+    """
     registry = ToolRegistry()
     registry.register(
         ToolSpec(

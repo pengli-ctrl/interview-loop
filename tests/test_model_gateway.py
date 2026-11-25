@@ -1,3 +1,4 @@
+"""测试模块，覆盖模型网关相关行为和回归场景。"""
 import pytest
 
 from interview_loop.platform.model_gateway import (
@@ -15,6 +16,7 @@ from interview_loop.platform.model_gateway import (
 
 
 def test_model_gateway_routes_tasks():
+    """验证模型网关路由任务。"""
     gateway = ModelGateway(completer=lambda system_prompt, user_msg: f"{system_prompt}|{user_msg}")
     result = gateway.complete("review", "system", "user")
     assert result.content == "system|user"
@@ -26,15 +28,35 @@ def test_model_gateway_routes_tasks():
 
 
 def test_unknown_task_uses_default_profile():
+    """验证未知任务使用默认模型配置。"""
     gateway = ModelGateway(completer=lambda system_prompt, user_msg: "ok")
     result = gateway.complete("custom", "system", "user")
     assert result.prompt_version == "custom-v1"
 
 
 def test_retry_recovers_from_transient_provider_error():
+    """验证重试恢复从瞬时Provider错误。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     calls = []
 
     def flaky(system_prompt, user_msg):
+        """构造按次数失败的模型调用替身。
+
+        Args:
+            system_prompt: `system_prompt` 输入参数，类型为 未标注。
+            user_msg: `user_msg` 输入参数，类型为 未标注。
+
+        Returns:
+            函数处理结果，类型为 未标注。
+
+        Raises:
+            RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+        """
         calls.append((system_prompt, user_msg))
         if len(calls) == 1:
             raise RuntimeError("temporary failure")
@@ -55,7 +77,23 @@ def test_retry_recovers_from_transient_provider_error():
 
 
 def test_fallback_moves_to_next_provider():
+    """验证失败后回退到下一个 Provider。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     def unavailable(system_prompt, user_msg):
+        """构造始终不可用的模型调用替身。
+
+        Args:
+            system_prompt: `system_prompt` 输入参数，类型为 未标注。
+            user_msg: `user_msg` 输入参数，类型为 未标注。
+
+        Raises:
+            RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+        """
         raise RuntimeError("provider down")
 
     gateway = ModelGateway(
@@ -78,6 +116,7 @@ def test_fallback_moves_to_next_provider():
 
 
 def test_all_providers_failed_raises_with_attempt_details():
+    """验证所有 Provider 失败时抛出带尝试详情的异常。"""
     gateway = ModelGateway(
         providers={"primary": lambda system_prompt, user_msg: (_ for _ in ()).throw(RuntimeError("down"))},
         profiles={
@@ -91,10 +130,26 @@ def test_all_providers_failed_raises_with_attempt_details():
 
 
 def test_circuit_opens_after_threshold_and_skips_provider():
+    """验证熔断打开之后阈值和跳过Provider。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     clock = [0.0]
     calls = []
 
     def failing(system_prompt, user_msg):
+        """构造始终失败的模型调用替身。
+
+        Args:
+            system_prompt: `system_prompt` 输入参数，类型为 未标注。
+            user_msg: `user_msg` 输入参数，类型为 未标注。
+
+        Raises:
+            RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+        """
         calls.append(1)
         raise RuntimeError("down")
 
@@ -121,10 +176,29 @@ def test_circuit_opens_after_threshold_and_skips_provider():
 
 
 def test_circuit_half_open_recovers_after_cooldown():
+    """验证熔断半打开恢复之后冷却。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     clock = [0.0]
     calls = []
 
     def flaky(system_prompt, user_msg):
+        """构造按次数失败的模型调用替身。
+
+        Args:
+            system_prompt: `system_prompt` 输入参数，类型为 未标注。
+            user_msg: `user_msg` 输入参数，类型为 未标注。
+
+        Returns:
+            函数处理结果，类型为 未标注。
+
+        Raises:
+            RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+        """
         calls.append(1)
         if len(calls) <= 2:
             raise RuntimeError("down")
@@ -154,6 +228,7 @@ def test_circuit_half_open_recovers_after_cooldown():
 
 
 def test_tenant_quota_is_isolated_between_tenants():
+    """验证租户配额判断隔离之间租户。"""
     clock = [0.0]
     store = TenantQuotaStore(
         TenantQuota(max_tokens=5, max_cost=100.0),
@@ -174,6 +249,7 @@ def test_tenant_quota_is_isolated_between_tenants():
 
 
 def test_tenant_quota_window_resets_usage():
+    """验证租户配额窗口重置用量。"""
     clock = [0.0]
     store = TenantQuotaStore(
         TenantQuota(max_tokens=5, max_cost=100.0, window_seconds=10),
@@ -188,6 +264,7 @@ def test_tenant_quota_window_resets_usage():
 
 
 def test_budget_accumulates_usage():
+    """验证预算累加用量。"""
     budget = UsageBudget(max_tokens=10000, max_cost=1.0)
     gateway = ModelGateway(completer=lambda system_prompt, user_msg: "answer")
     first = gateway.complete("review", "system", "user", budget=budget)
@@ -203,6 +280,7 @@ def test_budget_accumulates_usage():
 
 
 def test_budget_rejects_post_call_overrun_and_records_actual_usage():
+    """验证预算拒绝之后调用超限和记录实际用量。"""
     budget = UsageBudget(max_tokens=2, max_cost=100.0)
     gateway = ModelGateway(completer=lambda system_prompt, user_msg: "ok")
     with pytest.raises(BudgetExceededError):
@@ -211,5 +289,6 @@ def test_budget_rejects_post_call_overrun_and_records_actual_usage():
 
 
 def test_estimate_tokens():
+    """验证估算Token。"""
     assert estimate_tokens("12345678") == 2
     assert estimate_tokens("") == 1

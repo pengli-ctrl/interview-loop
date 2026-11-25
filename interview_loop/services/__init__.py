@@ -1,1 +1,1 @@
-"""External service adapters."""
+"""services 包的初始化模块，用于声明 Python 包。"""

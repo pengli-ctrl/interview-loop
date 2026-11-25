@@ -1,3 +1,4 @@
+"""测试模块，覆盖 Streamlit 应用相关行为和回归场景。"""
 import json
 import time
 from pathlib import Path
@@ -12,6 +13,16 @@ from interview_loop.storage.draft_store import save_interview_draft
 
 
 def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
+    """验证演示产品壳和完成面试。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     monkeypatch.setattr(config, "DEMO_MODE", True)
     monkeypatch.setattr(config, "SAVE_DIR", tmp_path / "sessions")
     monkeypatch.setattr(config, "RECORD_DIR", tmp_path / "records")
@@ -86,6 +97,16 @@ def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
     original_demo_response = llm_service.build_demo_llm_response
 
     def fail_next_question(system_prompt, user_msg):
+        """让下一次问题生成失败。
+
+        Args:
+            system_prompt: `system_prompt` 输入参数，类型为 未标注。
+            user_msg: `user_msg` 输入参数，类型为 未标注。
+
+        Raises:
+            RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+        """
         raise RuntimeError("next question failed")
 
     monkeypatch.setattr(llm_service, "build_demo_llm_response", fail_next_question)
@@ -177,6 +198,13 @@ def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
 
 
 def test_legacy_session_without_structured_report_opens(monkeypatch, tmp_path):
+    """验证旧版会话缺少结构化报告打开。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    """
     monkeypatch.setattr(config, "DEMO_MODE", True)
     save_dir = tmp_path / "sessions"
     save_dir.mkdir()
@@ -217,6 +245,13 @@ def test_legacy_session_without_structured_report_opens(monkeypatch, tmp_path):
 
 
 def test_unfinished_interview_draft_can_be_restored(monkeypatch, tmp_path):
+    """验证未完成面试草稿可以被恢复。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    """
     monkeypatch.setattr(config, "DEMO_MODE", True)
     save_dir = tmp_path / "sessions"
     save_dir.mkdir()
@@ -281,6 +316,13 @@ def test_unfinished_interview_draft_can_be_restored(monkeypatch, tmp_path):
 
 
 def test_new_interview_reset_clears_stale_resume_state(monkeypatch, tmp_path):
+    """验证新建面试重置清理过期简历状态。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    """
     monkeypatch.setattr(config, "DEMO_MODE", True)
     monkeypatch.setattr(config, "SAVE_DIR", tmp_path / "sessions")
     monkeypatch.setattr(config, "RECORD_DIR", tmp_path / "records")
@@ -308,6 +350,13 @@ def test_new_interview_reset_clears_stale_resume_state(monkeypatch, tmp_path):
 
 
 def test_dashboard_uses_empty_state_without_zero_metrics(monkeypatch, tmp_path):
+    """验证工作台使用空状态缺少零指标。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    """
     monkeypatch.setattr(config, "DEMO_MODE", True)
     monkeypatch.setattr(config, "SAVE_DIR", tmp_path / "sessions")
     monkeypatch.setattr(config, "RECORD_DIR", tmp_path / "records")
@@ -321,6 +370,13 @@ def test_dashboard_uses_empty_state_without_zero_metrics(monkeypatch, tmp_path):
 
 
 def test_growth_single_record_shows_next_step_instead_of_empty_chart(monkeypatch, tmp_path):
+    """验证成长单条记录展示下一步步骤而不是空图表。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    """
     monkeypatch.setattr(config, "DEMO_MODE", True)
     save_dir = tmp_path / "sessions"
     save_dir.mkdir()
@@ -362,6 +418,13 @@ def test_growth_single_record_shows_next_step_instead_of_empty_chart(monkeypatch
 
 
 def test_legacy_weak_stats_migrates_to_tenant_storage(monkeypatch, tmp_path):
+    """验证旧版薄弱统计迁移转换为租户存储。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    """
     monkeypatch.setattr(config, "DEMO_MODE", True)
     save_dir = tmp_path / "sessions"
     save_dir.mkdir()
@@ -382,6 +445,13 @@ def test_legacy_weak_stats_migrates_to_tenant_storage(monkeypatch, tmp_path):
 
 
 def test_dashboard_opens_latest_report_and_resets_setup_step(monkeypatch, tmp_path):
+    """验证工作台打开最近报告和重置设置步骤。
+
+    Args:
+        monkeypatch: `monkeypatch` 输入参数，类型为 未标注。
+        tmp_path: `tmp_path` 输入参数，类型为 未标注。
+
+    """
     monkeypatch.setattr(config, "DEMO_MODE", True)
     save_dir = tmp_path / "sessions"
     save_dir.mkdir()

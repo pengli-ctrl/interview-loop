@@ -1,3 +1,4 @@
+"""评分质量模块，负责人工评分与模型评分的误差校准和门禁判断。"""
 from dataclasses import dataclass, field
 
 from interview_loop.evaluation.rubric import RubricDimension, weighted_score
@@ -5,6 +6,7 @@ from interview_loop.evaluation.rubric import RubricDimension, weighted_score
 
 @dataclass(frozen=True)
 class QualityCaseResult:
+    """单条质量校准用例结果。"""
     case_id: str
     human_weighted_score: float
     model_weighted_score: float
@@ -14,6 +16,7 @@ class QualityCaseResult:
 
 @dataclass(frozen=True)
 class QualityReport:
+    """质量校准报告。"""
     case_count: int
     weighted_mae: float
     max_case_mae: float
@@ -25,6 +28,15 @@ class QualityReport:
 
 
 def evaluate_quality(dataset: dict) -> QualityReport:
+    """计算人工评分与模型评分的校准指标。
+
+    Args:
+        dataset: `dataset` 输入参数，类型为 dict。
+
+    Returns:
+        函数处理结果，类型为 QualityReport。
+
+    """
     dimensions = [
         RubricDimension(item["name"], float(item["weight"]))
         for item in dataset.get("dimensions", [])

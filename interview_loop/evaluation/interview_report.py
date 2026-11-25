@@ -1,3 +1,4 @@
+"""面试报告模块，负责表达结构参考分、维度评分、证据、风险和行动计划生成。"""
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -44,6 +45,7 @@ VAGUE_MARKERS = ("不知道", "没做过", "不了解", "不会", "大概", "可
 
 @dataclass(frozen=True)
 class EvidenceItem:
+    """回答证据条目。"""
     dimension: str
     dimension_label: str
     question: str
@@ -51,11 +53,18 @@ class EvidenceItem:
     score: float
 
     def to_dict(self) -> dict:
+        """转换为字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return self.__dict__.copy()
 
 
 @dataclass(frozen=True)
 class DimensionScore:
+    """能力维度得分。"""
     name: str
     label: str
     score: float
@@ -63,21 +72,35 @@ class DimensionScore:
     evidence: str = ""
 
     def to_dict(self) -> dict:
+        """转换为字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return self.__dict__.copy()
 
 
 @dataclass(frozen=True)
 class ActionItem:
+    """改进行动项。"""
     priority: str
     action: str
     related_dimension: str
 
     def to_dict(self) -> dict:
+        """转换为字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return self.__dict__.copy()
 
 
 @dataclass(frozen=True)
 class InterviewReport:
+    """结构化面试报告。"""
     overall_score: float
     dimensions: tuple[DimensionScore, ...]
     strengths: tuple[str, ...]
@@ -88,6 +111,12 @@ class InterviewReport:
     source: str = "structure-heuristic-v1"
 
     def to_dict(self) -> dict:
+        """转换为字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {
             "overall_score": self.overall_score,
             "dimensions": [item.to_dict() for item in self.dimensions],
@@ -101,6 +130,15 @@ class InterviewReport:
 
     @classmethod
     def from_dict(cls, data: dict) -> "InterviewReport":
+        """从字典。
+
+        Args:
+            data: `data` 输入参数，类型为 dict。
+
+        Returns:
+            函数处理结果，类型为 'InterviewReport'。
+
+        """
         return cls(
             overall_score=float(data.get("overall_score", 0)),
             dimensions=tuple(DimensionScore(**item) for item in data.get("dimensions", [])),
@@ -115,6 +153,7 @@ class InterviewReport:
 
 @dataclass(frozen=True)
 class ProgressRecord:
+    """单次训练进度记录。"""
     time: str
     mode: str
     overall_score: float
@@ -123,16 +162,37 @@ class ProgressRecord:
 
 @dataclass(frozen=True)
 class WeakAreaChange:
+    """薄弱领域变化。"""
     new_areas: tuple[str, ...]
     resolved_areas: tuple[str, ...]
     persistent_areas: tuple[str, ...]
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 10.0) -> float:
+    """内部辅助：限制数值范围。
+
+    Args:
+        value: `value` 输入参数，类型为 float。
+        low: `low` 输入参数，类型为 float。
+        high: `high` 输入参数，类型为 float。
+
+    Returns:
+        函数处理结果，类型为 float。
+
+    """
     return max(low, min(high, value))
 
 
 def parse_turns(messages: list[dict]) -> list[tuple[str, str]]:
+    """解析面试对话为问答轮次。
+
+    Args:
+        messages: `messages` 输入参数，类型为 list[dict]。
+
+    Returns:
+        函数处理结果，类型为 list[tuple[str, str]]。
+
+    """
     turns = []
     pending = ""
     for message in messages:
@@ -147,6 +207,15 @@ def parse_turns(messages: list[dict]) -> list[tuple[str, str]]:
 
 
 def _answer_quality(answer: str) -> float:
+    """内部辅助：计算回答结构质量启发式分。
+
+    Args:
+        answer: `answer` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 float。
+
+    """
     text = answer.strip()
     if not text:
         return 1.0
@@ -162,10 +231,32 @@ def _answer_quality(answer: str) -> float:
 
 
 def _keyword_hits(text: str, dimension: str) -> int:
+    """内部辅助：统计维度关键词命中次数。
+
+    Args:
+        text: `text` 输入参数，类型为 str。
+        dimension: `dimension` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 int。
+
+    """
     return sum(text.count(keyword) for keyword in DIMENSION_KEYWORDS.get(dimension, ()))
 
 
 def _best_evidence(turns: list[tuple[str, str]], dimension: str, label: str, score: float) -> EvidenceItem:
+    """内部辅助：挑选某维度的最佳回答证据。
+
+    Args:
+        turns: `turns` 输入参数，类型为 list[tuple[str, str]]。
+        dimension: `dimension` 输入参数，类型为 str。
+        label: `label` 输入参数，类型为 str。
+        score: `score` 输入参数，类型为 float。
+
+    Returns:
+        函数处理结果，类型为 EvidenceItem。
+
+    """
     if not turns:
         return EvidenceItem(dimension, label, "", "暂无回答证据", score)
     question, answer = max(turns, key=lambda item: _keyword_hits(item[1], dimension) * 100 + len(item[1]))
@@ -179,6 +270,17 @@ def _best_evidence(turns: list[tuple[str, str]], dimension: str, label: str, sco
 
 
 def _job_value(job_match: Any, key: str, default: Any) -> Any:
+    """内部辅助：读取岗位匹配字段。
+
+    Args:
+        job_match: `job_match` 输入参数，类型为 Any。
+        key: `key` 输入参数，类型为 str。
+        default: `default` 输入参数，类型为 Any。
+
+    Returns:
+        函数处理结果，类型为 Any。
+
+    """
     if job_match is None:
         return default
     if isinstance(job_match, dict):
@@ -192,6 +294,18 @@ def build_interview_report(
     tags: list[str] | None = None,
     job_match: Any = None,
 ) -> InterviewReport:
+    """构建结构化面试报告。
+
+    Args:
+        messages: `messages` 输入参数，类型为 list[dict]。
+        rubric: `rubric` 输入参数，类型为 list[Any] | tuple[Any, ...]。
+        tags: `tags` 输入参数，类型为 list[str] | None。
+        job_match: `job_match` 输入参数，类型为 Any。
+
+    Returns:
+        函数处理结果，类型为 InterviewReport。
+
+    """
     tags = list(tags or [])
     turns = parse_turns(messages)
     answers = "\n".join(answer for _, answer in turns)
@@ -274,6 +388,16 @@ def build_interview_report(
 
 
 def build_progress_records(sessions: list[dict], mode: str | None = None) -> list[ProgressRecord]:
+    """构建训练进度记录。
+
+    Args:
+        sessions: `sessions` 输入参数，类型为 list[dict]。
+        mode: `mode` 输入参数，类型为 str | None。
+
+    Returns:
+        函数处理结果，类型为 list[ProgressRecord]。
+
+    """
     records = []
     for item in sessions:
         if mode and item.get("mode") != mode:
@@ -286,6 +410,16 @@ def build_progress_records(sessions: list[dict], mode: str | None = None) -> lis
 
 
 def compare_weak_areas(current_tags: list[str], previous_tags: list[str]) -> WeakAreaChange:
+    """比较两次训练的薄弱领域变化。
+
+    Args:
+        current_tags: `current_tags` 输入参数，类型为 list[str]。
+        previous_tags: `previous_tags` 输入参数，类型为 list[str]。
+
+    Returns:
+        函数处理结果，类型为 WeakAreaChange。
+
+    """
     current = set(current_tags)
     previous = set(previous_tags)
     return WeakAreaChange(tuple(sorted(current - previous)), tuple(sorted(previous - current)), tuple(sorted(current & previous)))

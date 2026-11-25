@@ -1,3 +1,4 @@
+"""质量评估脚本模块，负责运行评分质量校准门禁。"""
 import json
 import sys
 from dataclasses import asdict
@@ -12,6 +13,12 @@ from interview_loop.evaluation.quality import evaluate_quality
 
 
 def main() -> None:
+    """命令行入口：运行评分质量校准门禁。
+
+    Raises:
+        SystemExit: 当输入、状态或外部依赖不满足要求时抛出 SystemExit。
+
+    """
     dataset = json.loads(
         (ROOT / "datasets" / "quality_golden.json").read_text(encoding="utf-8")
     )

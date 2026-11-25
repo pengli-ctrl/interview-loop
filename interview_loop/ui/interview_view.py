@@ -1,4 +1,4 @@
-"""Focused interview room page."""
+"""Streamlit 面试室页面模块，负责阶段进度、计时、问题、语音/文字回答和结束操作。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,16 @@ def render_interview_view(
     open_setup: Callable[[], None],
     confirm_finish: Callable[[dict], None],
 ) -> None:
+    """渲染专注面试室页面。
+
+    Args:
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+        render_timer: `render_timer` 关键字参数，类型为 Callable[[], None]。
+        process_answer: `process_answer` 关键字参数，类型为 Callable[[str, dict], bool]。
+        open_setup: `open_setup` 关键字参数，类型为 Callable[[], None]。
+        confirm_finish: `confirm_finish` 关键字参数，类型为 Callable[[dict], None]。
+
+    """
     st.header("面试室")
     stage_position = min(
         int(st.session_state.get("current_stage_idx", 0)),

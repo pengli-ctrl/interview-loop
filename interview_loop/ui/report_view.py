@@ -1,4 +1,4 @@
-"""Report page presentation for InterviewLoop."""
+"""Streamlit 复盘报告页面模块，负责参考分、维度图、行动计划和下载入口。"""
 
 from __future__ import annotations
 
@@ -32,6 +32,26 @@ def render_report_view(
     on_again: Callable[[], None],
     on_growth: Callable[[], None],
 ) -> None:
+    """渲染复盘报告页面。
+
+    Args:
+        feedback: `feedback` 关键字参数，类型为 str | None。
+        duration_seconds: `duration_seconds` 关键字参数，类型为 int | None。
+        tags: `tags` 关键字参数，类型为 list[str]。
+        structured_report: `structured_report` 关键字参数，类型为 InterviewReport | None。
+        job_match: `job_match` 关键字参数，类型为 JobMatchReport | None。
+        messages_count: `messages_count` 关键字参数，类型为 int。
+        demo_mode: `demo_mode` 关键字参数，类型为 bool。
+        last_record_path: `last_record_path` 关键字参数，类型为 str | None。
+        last_record_markdown: `last_record_markdown` 关键字参数，类型为 str | None。
+        mode: `mode` 关键字参数，类型为 str。
+        interview_type: `interview_type` 关键字参数，类型为 str。
+        style: `style` 关键字参数，类型为 str。
+        on_start: `on_start` 关键字参数，类型为 Callable[[], None]。
+        on_again: `on_again` 关键字参数，类型为 Callable[[], None]。
+        on_growth: `on_growth` 关键字参数，类型为 Callable[[], None]。
+
+    """
     st.header("复盘报告")
     if not feedback:
         with st.container(border=True):

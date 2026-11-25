@@ -1,15 +1,34 @@
+"""Markdown 导出模块，负责完整面试记录、评分和复盘报告生成。"""
 from pathlib import Path
 
 from interview_loop.storage.common import atomic_write_text
 
 
 def safe_filename_part(value: str) -> str:
+    """清洗文件名中的非法字符。
+
+    Args:
+        value: `value` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     invalid = '<>:"/\\|?*'
     cleaned = "".join("_" if char in invalid or ord(char) < 32 else char for char in str(value))
     return cleaned.strip(" .") or "未命名"
 
 
 def format_duration(seconds: int | None) -> str:
+    """把秒数格式化为可读时长。
+
+    Args:
+        seconds: `seconds` 输入参数，类型为 int | None。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     if seconds is None:
         return "未记录"
     seconds = max(0, int(seconds))
@@ -23,6 +42,15 @@ def format_duration(seconds: int | None) -> str:
 
 
 def build_markdown_record(data: dict) -> str:
+    """构建完整面试记录 Markdown。
+
+    Args:
+        data: `data` 输入参数，类型为 dict。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     lines = [
         "# 面试记录",
         "",
@@ -132,6 +160,16 @@ def build_markdown_record(data: dict) -> str:
 
 
 def save_markdown_record(record_dir: Path, data: dict) -> tuple[Path, str]:
+    """把面试记录写入 Markdown 文件。
+
+    Args:
+        record_dir: `record_dir` 输入参数，类型为 Path。
+        data: `data` 输入参数，类型为 dict。
+
+    Returns:
+        函数处理结果，类型为 tuple[Path, str]。
+
+    """
     filename = "_".join(
         [
             safe_filename_part(data.get("started_at", "未知")),

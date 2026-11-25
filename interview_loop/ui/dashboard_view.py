@@ -1,4 +1,4 @@
-"""Dashboard page presentation."""
+"""Streamlit 工作台页面模块，负责开始训练、恢复草稿、最近报告和成长入口。"""
 
 from __future__ import annotations
 
@@ -22,6 +22,21 @@ def render_dashboard_view(
     on_restore: Callable[[], None],
     on_discard: Callable[[], None],
 ) -> None:
+    """渲染工作台页面。
+
+    Args:
+        sessions: `sessions` 关键字参数，类型为 list。
+        latest: `latest` 关键字参数，类型为 dict | None。
+        weak_items: `weak_items` 关键字参数，类型为 int。
+        current_mode: `current_mode` 关键字参数，类型为 str。
+        pending_draft: `pending_draft` 关键字参数，类型为 dict | None。
+        on_start: `on_start` 关键字参数，类型为 Callable[[], None]。
+        on_growth: `on_growth` 关键字参数，类型为 Callable[[], None]。
+        on_report: `on_report` 关键字参数，类型为 Callable[[], None]。
+        on_restore: `on_restore` 关键字参数，类型为 Callable[[], None]。
+        on_discard: `on_discard` 关键字参数，类型为 Callable[[], None]。
+
+    """
     st.title("InterviewLoop")
     st.caption("把一次面试练习，变成持续可见的能力成长。")
 

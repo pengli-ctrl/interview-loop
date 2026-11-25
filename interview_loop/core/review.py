@@ -1,3 +1,4 @@
+"""面试复盘模块，负责复盘提示词、标签解析和数字分数清洗。"""
 import json
 import re
 
@@ -8,7 +9,15 @@ _SCORE_VALUE = re.compile(r"(?<!\d)\d+(?:\.\d+)?\s*/\s*10")
 
 
 def strip_numeric_scores(text: str) -> str:
-    """Remove score claims so the review stays qualitative."""
+    """移除复盘文本中的数字评分声明。
+
+    Args:
+        text: `text` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     lines = []
     for line in str(text or "").splitlines():
         if _SCORE_LINE.match(line):
@@ -25,6 +34,18 @@ def build_review_prompt(
     valid_tags: list[str],
     messages: list[dict],
 ) -> str:
+    """构建只输出定性评价的复盘提示词。
+
+    Args:
+        mode: `mode` 输入参数，类型为 str。
+        style: `style` 输入参数，类型为 str。
+        valid_tags: `valid_tags` 输入参数，类型为 list[str]。
+        messages: `messages` 输入参数，类型为 list[dict]。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     return f"""你是面试评审，轮次：{mode}，风格：{style}。
 输出固定结构：
 1. 总评（只写文字评价，不输出任何数字分数）
@@ -37,12 +58,32 @@ def build_review_prompt(
 
 
 def build_tag_prompt(review_text: str, valid_tags: list[str]) -> str:
+    """构建薄弱标签提取提示词。
+
+    Args:
+        review_text: `review_text` 输入参数，类型为 str。
+        valid_tags: `valid_tags` 输入参数，类型为 list[str]。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     return f"""从下面复盘文本提取标签，只输出 JSON 数组，例如 ["Temporal", "落地细节"]。
 标签只能从列表选择：{",".join(valid_tags)}
 文本：{review_text}"""
 
 
 def parse_tags(raw: str, valid_tags: list[str]) -> list[str]:
+    """从模型输出中解析合法标签。
+
+    Args:
+        raw: `raw` 输入参数，类型为 str。
+        valid_tags: `valid_tags` 输入参数，类型为 list[str]。
+
+    Returns:
+        函数处理结果，类型为 list[str]。
+
+    """
     start = raw.find("[")
     end = raw.rfind("]")
     if start == -1 or end < start:

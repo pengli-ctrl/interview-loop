@@ -1,3 +1,4 @@
+"""InterviewLoop 应用入口与业务编排模块，负责 Streamlit 会话状态、页面回调、持久化和外部服务装配。"""
 import json
 import os
 import time
@@ -97,6 +98,13 @@ inject_ui_css()
 
 
 def record_model_call(result, node: str) -> None:
+    """把一次模型调用记录为 AgentRun 事件。
+
+    Args:
+        result: `result` 输入参数，类型为 未标注。
+        node: `node` 输入参数，类型为 str。
+
+    """
     agent_run = st.session_state.get("agent_run")
     if agent_run is None:
         return
@@ -122,6 +130,13 @@ def record_model_call(result, node: str) -> None:
 
 
 def record_run_error(error: Exception | str, node: str) -> None:
+    """把运行错误记录为 AgentRun 事件。
+
+    Args:
+        error: `error` 输入参数，类型为 Exception | str。
+        node: `node` 输入参数，类型为 str。
+
+    """
     agent_run = st.session_state.get("agent_run")
     if agent_run is None:
         return
@@ -129,6 +144,12 @@ def record_run_error(error: Exception | str, node: str) -> None:
 
 
 def current_job_context() -> str:
+    """读取当前 JD/简历匹配上下文。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     report = st.session_state.get("job_match")
     return build_job_context(report) if isinstance(report, JobMatchReport) else ""
 
@@ -140,6 +161,16 @@ def record_question_generated(
     main_index: int,
     followup_index: int,
 ) -> None:
+    """记录生成的问题及其阶段位置。
+
+    Args:
+        question: `question` 输入参数，类型为 str。
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+        stage_idx: `stage_idx` 输入参数，类型为 int。
+        main_index: `main_index` 输入参数，类型为 int。
+        followup_index: `followup_index` 输入参数，类型为 int。
+
+    """
     agent_run = st.session_state.get("agent_run")
     if agent_run is None:
         return
@@ -159,6 +190,14 @@ def record_question_generated(
 
 
 def record_stage_transition(mode_cfg: dict, from_index: int, to_index: int) -> None:
+    """记录阶段切换事件。
+
+    Args:
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+        from_index: `from_index` 输入参数，类型为 int。
+        to_index: `to_index` 输入参数，类型为 int。
+
+    """
     agent_run = st.session_state.get("agent_run")
     if agent_run is None:
         return
@@ -177,34 +216,70 @@ def record_stage_transition(mode_cfg: dict, from_index: int, to_index: int) -> N
     )
 
 
-# ===================== 持久化与初始化 =====================
+# ===================== 持久化、草稿与初始化 =====================
 def current_tenant_id() -> str:
+    """返回当前租户 ID，默认 local。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     return st.session_state.get("tenant_id", "local")
 
 
 def tenant_save_dir() -> Path:
+    """返回并创建当前租户的会话目录。
+
+    Returns:
+        函数处理结果，类型为 Path。
+
+    """
     path = tenant_scoped_dir(SAVE_DIR, current_tenant_id())
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def tenant_record_dir() -> Path:
+    """返回并创建当前租户的 Markdown 记录目录。
+
+    Returns:
+        函数处理结果，类型为 Path。
+
+    """
     path = tenant_scoped_dir(RECORD_DIR, current_tenant_id())
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def agent_run_repository_path() -> Path:
+    """返回 AgentRun SQLite 数据库路径。
+
+    Returns:
+        函数处理结果，类型为 Path。
+
+    """
     return Path(
         os.getenv("INTERVIEWLOOP_DB_PATH", SAVE_DIR.parent / "interview_loop.db")
     )
 
 
 def list_session_files() -> list[Path]:
+    """列出当前租户的会话 JSON 文件。
+
+    Returns:
+        函数处理结果，类型为 list[Path]。
+
+    """
     return _list_session_files(tenant_save_dir())
 
 
 def current_draft_data() -> dict:
+    """收集当前面试状态用于草稿保存。
+
+    Returns:
+        函数处理结果，类型为 dict。
+
+    """
     job_match = st.session_state.get("job_match")
     return {
         "version": 1,
@@ -238,6 +313,7 @@ def current_draft_data() -> dict:
 
 
 def save_current_draft() -> None:
+    """保存当前面试草稿，未开始面试时跳过。"""
     if st.session_state.get("start_time") is None:
         return
     try:
@@ -248,6 +324,7 @@ def save_current_draft() -> None:
 
 
 def clear_current_draft() -> None:
+    """删除当前会话草稿并清空待恢复状态。"""
     session_id = st.session_state.get("session_id")
     if session_id:
         try:
@@ -258,14 +335,38 @@ def clear_current_draft() -> None:
 
 
 def tenant_stats_path() -> Path:
+    """返回当前租户的薄弱统计文件路径。
+
+    Returns:
+        函数处理结果，类型为 Path。
+
+    """
     return tenant_save_dir() / "weak_stats.json"
 
 
 def save_global_weak_stats(stats: dict) -> None:
+    """保存当前租户的薄弱标签统计。
+
+    Args:
+        stats: `stats` 输入参数，类型为 dict。
+
+    """
     save_stats(tenant_stats_path(), stats)
 
 
 def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> Path:
+    """保存完整会话、Markdown 记录并持久化 AgentRun。
+
+    Args:
+        mode: `mode` 输入参数，类型为 str。
+        messages: `messages` 输入参数，类型为 list。
+        feedback: `feedback` 输入参数，类型为 str。
+        tags: `tags` 输入参数，类型为 list[str]。
+
+    Returns:
+        函数处理结果，类型为 Path。
+
+    """
     started_at = st.session_state.get("interview_started_at") or time.strftime(
         "%Y-%m-%d_%H-%M-%S"
     )
@@ -344,6 +445,13 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
 
 
 def load_saved_session_into_state(saved: dict, session_file: Path | None = None) -> None:
+    """把历史会话加载到 Streamlit 会话状态。
+
+    Args:
+        saved: `saved` 输入参数，类型为 dict。
+        session_file: `session_file` 输入参数，类型为 Path | None。
+
+    """
     saved_mode = str(saved.get("mode") or MODE_LIST[0])
     messages = list(saved.get("messages") or [])
     feedback = saved.get("feedback")
@@ -402,6 +510,7 @@ def load_saved_session_into_state(saved: dict, session_file: Path | None = None)
 
 
 def open_latest_report() -> None:
+    """加载并打开最近一次面试报告。"""
     sessions = list_session_files()
     if not sessions:
         return
@@ -417,6 +526,7 @@ def open_latest_report() -> None:
 
 
 def enter_setup_view() -> None:
+    """进入面试设置页，必要时重置到第一步。"""
     if st.session_state.get("feedback"):
         st.session_state.setup_step = 1
     st.session_state.current_view = "setup"
@@ -424,12 +534,14 @@ def enter_setup_view() -> None:
 
 
 def open_setup_view() -> None:
+    """进入面试设置页并触发重跑。"""
     enter_setup_view()
     st.rerun()
 
 
-# 初始化 session state
+# 初始化薄弱统计与 session state
 def migrate_legacy_weak_stats() -> None:
+    """把旧版全局薄弱统计迁移到当前租户目录。"""
     tenant_path = tenant_stats_path()
     if tenant_path.exists() or current_tenant_id() != "local":
         return
@@ -500,6 +612,7 @@ st.session_state.setdefault("pending_draft", latest_interview_draft(tenant_save_
 
 
 def restore_pending_draft() -> None:
+    """恢复未完成面试草稿，重建简历索引和 AgentRun。"""
     draft = st.session_state.get("pending_draft")
     if not isinstance(draft, dict):
         return
@@ -589,6 +702,7 @@ def restore_pending_draft() -> None:
 
 
 def discard_pending_draft() -> None:
+    """删除待恢复的面试草稿。"""
     draft = st.session_state.get("pending_draft")
     if isinstance(draft, dict) and draft.get("session_id"):
         try:
@@ -598,7 +712,7 @@ def discard_pending_draft() -> None:
     st.session_state.pending_draft = None
     st.rerun()
 
-# 60 分钟面试：每阶段按主问题计划执行，并根据回答动态追问。
+# 面试流程版本升级时，重置旧会话状态。
 if st.session_state.get("interview_flow_version") != 4:
     st.session_state.current_stage_idx = 0
     st.session_state.stage_main_index = 0
@@ -623,6 +737,12 @@ if st.session_state.get("interview_flow_version") != 4:
 
 
 def clear_resume_state(*, clear_upload: bool = False) -> None:
+    """清空简历、RAG 和岗位匹配状态。
+
+    Args:
+        clear_upload: `clear_upload` 关键字参数，类型为 bool。
+
+    """
     st.session_state.resume_text = ""
     st.session_state.resume_retriever = None
     st.session_state.resume_signature = None
@@ -638,6 +758,7 @@ def clear_resume_state(*, clear_upload: bool = False) -> None:
 
 
 def reset_interview_state() -> None:
+    """重置一次面试的全部状态并清理草稿。"""
     clear_current_draft()
     st.session_state.pending_draft = None
     st.session_state.current_stage_idx = 0
@@ -670,8 +791,14 @@ def reset_interview_state() -> None:
     st.session_state.setup_step = 1
     st.session_state.current_view = "setup"
     st.session_state.nav_version = st.session_state.get("nav_version", 0) + 1
-# ===================== 简历解析与 RAG =====================
+# ===================== 语音辅助 =====================
 def set_question_audio(question: str) -> None:
+    """把面试题合成为语音并写入会话状态。
+
+    Args:
+        question: `question` 输入参数，类型为 str。
+
+    """
     try:
         st.session_state.question_audio = text2audio(question)
         st.session_state.question_audio_error = None
@@ -680,6 +807,16 @@ def set_question_audio(question: str) -> None:
         st.session_state.question_audio_error = str(exc)
 # ===================== 面试业务 =====================
 def extract_tags(review_text: str, valid_tags: list[str]) -> list[str]:
+    """调用模型从复盘中提取合法薄弱标签。
+
+    Args:
+        review_text: `review_text` 输入参数，类型为 str。
+        valid_tags: `valid_tags` 输入参数，类型为 list[str]。
+
+    Returns:
+        函数处理结果，类型为 list[str]。
+
+    """
     try:
         result = MODEL_GATEWAY.complete(
             "tagging",
@@ -696,6 +833,13 @@ def extract_tags(review_text: str, valid_tags: list[str]) -> list[str]:
 
 
 def update_global_stats(mode: str, tags: list[str]) -> None:
+    """累加当前租户的薄弱标签统计。
+
+    Args:
+        mode: `mode` 输入参数，类型为 str。
+        tags: `tags` 输入参数，类型为 list[str]。
+
+    """
     mode_stats = st.session_state.global_weak_stats.setdefault(mode, {})
     for tag in tags:
         mode_stats[tag] = mode_stats.get(tag, 0) + 1
@@ -714,6 +858,24 @@ def get_stage_question(
     last_answer: str = "",
     job_ctx: str = "",
 ) -> str:
+    """按阶段、主问题和追问上下文生成面试题。
+
+    Args:
+        mode: `mode` 输入参数，类型为 str。
+        stage_idx: `stage_idx` 输入参数，类型为 int。
+        resume_ctx: `resume_ctx` 输入参数，类型为 str。
+        weak_stats: `weak_stats` 输入参数，类型为 dict。
+        main_index: `main_index` 输入参数，类型为 int。
+        followup_index: `followup_index` 输入参数，类型为 int。
+        is_followup: `is_followup` 输入参数，类型为 bool。
+        previous_question: `previous_question` 输入参数，类型为 str。
+        last_answer: `last_answer` 输入参数，类型为 str。
+        job_ctx: `job_ctx` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     stage = MODE_CONFIG[mode]["stage_list"][stage_idx]
     prompt = build_stage_question_prompt(
         mode=mode,
@@ -753,6 +915,15 @@ def get_stage_question(
 
 
 def get_weak_question(mode: str) -> str:
+    """针对最高频薄弱标签生成专项练习题。
+
+    Args:
+        mode: `mode` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     stats = st.session_state.global_weak_stats[mode]
     if not stats:
         return MODE_CONFIG[mode]["stage_list"][0]["pool"][0]
@@ -770,6 +941,18 @@ def get_weak_question(mode: str) -> str:
 
 
 def generate_review(mode_cfg: dict) -> bool:
+    """生成定性复盘和结构化报告，保存会话并清理草稿。
+
+    Args:
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+
+    Returns:
+        函数处理结果，类型为 bool。
+
+    Raises:
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     if not st.session_state.messages:
         st.warning("还没有对话记录，至少回答一道题后再生成复盘")
         return False
@@ -839,6 +1022,16 @@ def generate_review(mode_cfg: dict) -> bool:
 
 
 def process_answer(ans_text: str, mode_cfg: dict) -> bool:
+    """处理候选人回答并推进面试流程。
+
+    Args:
+        ans_text: `ans_text` 输入参数，类型为 str。
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+
+    Returns:
+        函数处理结果，类型为 bool。
+
+    """
     current_question = str(st.session_state.get("current_question") or "")
     current_stage_idx = int(st.session_state.get("current_stage_idx", 0))
     agent_run = st.session_state.get("agent_run")
@@ -991,6 +1184,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
 
 @st.fragment(run_every="1s", key="interview_timer_fragment")
 def render_interview_timer() -> None:
+    """渲染总时长和阶段剩余时间计时器。"""
     scenario = SCENARIO_REGISTRY.scenario_for_round(st.session_state.mode)
     total_seconds = max(1, int(scenario.duration_minutes) * 60)
     elapsed = time.time() - st.session_state.start_time
@@ -1021,7 +1215,7 @@ def render_interview_timer() -> None:
         st.session_state.timer_alert = True
 
 
-# ===================== UI =====================
+# ===================== 页面导航与 UI 装配 =====================
 BASE_VIEW_ORDER = ["dashboard", "setup", "interview", "report", "growth"]
 VIEW_LABELS = {
     "dashboard": "工作台",
@@ -1034,6 +1228,12 @@ VIEW_LABELS = {
 
 
 def visible_views() -> list[str]:
+    """返回当前可见的页面列表，按开关追加控制台。
+
+    Returns:
+        函数处理结果，类型为 list[str]。
+
+    """
     views = list(BASE_VIEW_ORDER)
     if ADMIN_MODE:
         views.append("admin")
@@ -1041,6 +1241,12 @@ def visible_views() -> list[str]:
 
 
 def set_view(view: str) -> None:
+    """切换当前页面并递增导航版本。
+
+    Args:
+        view: `view` 输入参数，类型为 str。
+
+    """
     if view == "admin" and not ADMIN_MODE:
         view = "dashboard"
     st.session_state.current_view = view
@@ -1048,11 +1254,23 @@ def set_view(view: str) -> None:
 
 
 def go_to(view: str) -> None:
+    """切换页面并立即重跑。
+
+    Args:
+        view: `view` 输入参数，类型为 str。
+
+    """
     set_view(view)
     st.rerun()
 
 
 def finish_interview_confirmed(mode_cfg: dict) -> None:
+    """确认结束后生成复盘并跳转到报告页。
+
+    Args:
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+
+    """
     if generate_review(mode_cfg):
         set_view("report")
         st.rerun()
@@ -1060,6 +1278,12 @@ def finish_interview_confirmed(mode_cfg: dict) -> None:
 
 @st.dialog("确认结束面试")
 def confirm_finish_interview(mode_cfg: dict) -> None:
+    """弹出结束面试确认对话框。
+
+    Args:
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+
+    """
     st.write(
         "结束后将生成当前已完成回答的复盘和 Markdown 记录。"
         "未作答的后续问题不会自动补齐。"
@@ -1082,6 +1306,7 @@ def confirm_finish_interview(mode_cfg: dict) -> None:
 
 
 def render_sidebar() -> None:
+    """渲染侧边栏导航和面试状态。"""
     with st.sidebar:
         st.markdown("### InterviewLoop")
         st.caption("AI 面试训练平台")
@@ -1122,6 +1347,7 @@ def render_sidebar() -> None:
 
 
 def render_dashboard() -> None:
+    """渲染工作台并装配最近会话和草稿回调。"""
     sessions = list_session_files()
     latest = None
     if sessions:
@@ -1138,6 +1364,7 @@ def render_dashboard() -> None:
         pending_draft = None
 
     def open_growth() -> None:
+        """跳转到成长记录页。"""
         go_to("growth")
 
     render_dashboard_view(
@@ -1155,6 +1382,12 @@ def render_dashboard() -> None:
 
 
 def start_interview_session(mode_cfg: dict) -> None:
+    """开始一场面试并生成第一道题。
+
+    Args:
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+
+    """
     if (
         st.session_state.interview_type == "闯关全真面试"
         and st.session_state.current_stage_idx
@@ -1231,6 +1464,12 @@ def start_interview_session(mode_cfg: dict) -> None:
 
 
 def render_setup(mode_cfg: dict) -> None:
+    """渲染面试设置页。
+
+    Args:
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+
+    """
     render_setup_view(
         mode_cfg,
         reset_interview_state=reset_interview_state,
@@ -1241,6 +1480,12 @@ def render_setup(mode_cfg: dict) -> None:
 
 
 def render_interview(mode_cfg: dict) -> None:
+    """渲染面试室。
+
+    Args:
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+
+    """
     render_interview_view(
         mode_cfg,
         render_timer=render_interview_timer,
@@ -1251,19 +1496,23 @@ def render_interview(mode_cfg: dict) -> None:
 
 
 def render_report() -> None:
+    """渲染复盘报告页。"""
     feedback = st.session_state.get("feedback")
     duration_seconds = st.session_state.get("report_duration_seconds")
     if duration_seconds is None and st.session_state.get("start_time") is not None:
         duration_seconds = int(max(0, time.time() - st.session_state.start_time))
 
     def start_new_interview() -> None:
+        """跳转到面试设置页。"""
         go_to("setup")
 
     def restart_interview() -> None:
+        """重置并开始新一轮面试。"""
         reset_interview_state()
         st.rerun()
 
     def open_growth() -> None:
+        """跳转到成长记录页。"""
         go_to("growth")
 
     render_report_view(
@@ -1286,7 +1535,20 @@ def render_report() -> None:
 
 
 def render_growth(mode_cfg: dict) -> None:
+    """渲染成长记录页。
+
+    Args:
+        mode_cfg: `mode_cfg` 输入参数，类型为 dict。
+
+    """
     def open_session(saved: dict, session_file: Path) -> None:
+        """加载历史会话并跳转到报告或设置页。
+
+        Args:
+            saved: `saved` 输入参数，类型为 dict。
+            session_file: `session_file` 输入参数，类型为 Path。
+
+        """
         load_saved_session_into_state(saved, session_file)
         set_view("report" if saved.get("feedback") else "setup")
         st.rerun()
@@ -1296,6 +1558,14 @@ def render_growth(mode_cfg: dict) -> None:
         markdown_path: Path,
         saved: dict,
     ) -> None:
+        """删除会话 JSON、Markdown 记录和对应草稿。
+
+        Args:
+            session_file: `session_file` 输入参数，类型为 Path。
+            markdown_path: `markdown_path` 输入参数，类型为 Path。
+            saved: `saved` 输入参数，类型为 dict。
+
+        """
         session_file.unlink(missing_ok=True)
         markdown_path.unlink(missing_ok=True)
         delete_interview_draft(
@@ -1323,10 +1593,17 @@ def render_growth(mode_cfg: dict) -> None:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_rag_metrics() -> dict:
+    """缓存并返回默认 RAG 黄金集评估指标。
+
+    Returns:
+        函数处理结果，类型为 dict。
+
+    """
     return evaluate_default_rag()
 
 
 def render_admin() -> None:
+    """渲染只读平台控制台。"""
     render_admin_view(
         registry=SCENARIO_REGISTRY,
         tool_registry=TOOL_REGISTRY,

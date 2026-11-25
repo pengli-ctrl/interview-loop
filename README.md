@@ -6,7 +6,7 @@
 
 ![InterviewLoop 端到端演示](demo/interview-loop.gif)
 
-> 当前版本：`v0.19.0`。项目可作为本地面试训练工具、Agent 工程作品和受控演示使用；公测生产环境仍需补齐账号、数据库、安全和运营能力。
+> 当前版本：`v0.20.0`。项目可作为本地面试训练工具、Agent 工程作品和受控演示使用；公测生产环境仍需补齐账号、数据库、安全和运营能力。
 
 ## 解决什么问题
 
@@ -161,13 +161,16 @@ uvicorn interview_loop.api.main:app --reload
 
 ```powershell
 pip install -r requirements-dev.txt
+python scripts/check_docstrings.py
 ruff check .
 pytest -q
 python scripts/evaluate_rag.py
 python scripts/evaluate_quality.py
 ```
 
-当前包含 142+ 个 pytest 用例，覆盖状态机、追问、场景配置、JD 匹配、结构化报告、Markdown 导出、存储、模型网关、工具运行时、API、隐私、Trace 和 Streamlit 全流程。
+当前包含 142 个 pytest 用例和全项目中文 docstring 门禁，覆盖状态机、追问、场景配置、JD 匹配、结构化报告、Markdown 导出、存储、模型网关、工具运行时、API、隐私、Trace 和 Streamlit 全流程。
+
+注释门禁要求所有 Python 模块有中文作用说明，所有类和函数有中文 Google 风格 docstring，并校验 Args、Returns/Yields 和 Raises 章节。CI 与本地 .githooks/pre-push 都会执行该门禁。
 
 检索黄金集、Rubric、评分质量门禁和 Agent 指标说明见 [评估体系](docs/evaluation.md)。
 
@@ -190,6 +193,7 @@ python scripts/capture_demo.py
 | [架构说明](docs/architecture.md) | 模块、运行链路、数据和部署 |
 | [评估体系](docs/evaluation.md) | 检索、报告、质量校准和 Trace |
 | [运维手册](docs/operations.md) | 配置、启动、API、数据和故障排查 |
+| [代码注释规范](docs/code-style.md) | 中文 Google docstring 与推送门禁 |
 | [产品路线图](docs/product/roadmap.md) | 已完成范围与公测门槛 |
 | [ADR](docs/adr/) | 关键技术决策 |
 

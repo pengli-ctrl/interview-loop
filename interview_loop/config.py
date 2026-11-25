@@ -1,3 +1,4 @@
+"""项目配置模块，负责读取模型、语音、存储、Demo 和 Admin 等运行配置。"""
 import os
 from pathlib import Path
 
@@ -7,6 +8,16 @@ from interview_loop.scenarios import get_default_registry
 
 
 def _get_secret(name: str, default: str = "") -> str:
+    """内部辅助：获取密钥。
+
+    Args:
+        name: `name` 输入参数，类型为 str。
+        default: `default` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     try:
         value = st.secrets.get(name, "")
     except Exception:

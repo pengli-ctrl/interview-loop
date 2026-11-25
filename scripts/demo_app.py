@@ -1,4 +1,4 @@
-"""Run InterviewLoop with isolated, disposable data for demo capture."""
+"""Demo 启动包装模块，负责使用隔离目录运行 app.py。"""
 
 from __future__ import annotations
 

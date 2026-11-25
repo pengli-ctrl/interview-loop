@@ -1,12 +1,15 @@
+"""Trace Replay 模块，负责从 AgentRun 事件重建面试阶段和完成状态。"""
 from dataclasses import dataclass, field
 
 
 class ReplayError(ValueError):
+    """重放数据校验失败异常。"""
     pass
 
 
 @dataclass(frozen=True)
 class ReplayReport:
+    """Trace 重放报告。"""
     run_id: str
     trace_id: str
     final_stage: int
@@ -18,6 +21,18 @@ class ReplayReport:
 
 
 def replay_agent_run(run: dict) -> ReplayReport:
+    """从 AgentRun 事件重放面试流程。
+
+    Args:
+        run: `run` 输入参数，类型为 dict。
+
+    Returns:
+        函数处理结果，类型为 ReplayReport。
+
+    Raises:
+        ReplayError: 当输入、状态或外部依赖不满足要求时抛出 ReplayError。
+
+    """
     events = run.get("events", [])
     current_stage = 0
     stage_sequence = [current_stage]

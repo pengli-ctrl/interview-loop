@@ -1,3 +1,4 @@
+"""测试模块，覆盖面试报告相关行为和回归场景。"""
 from interview_loop.evaluation.interview_report import (
     InterviewReport,
     build_interview_report,
@@ -8,6 +9,12 @@ from interview_loop.scenarios import RubricDimensionSpec
 
 
 def _rubric():
+    """构造测试用评分维度。
+
+    Returns:
+        函数处理结果，类型为 未标注。
+
+    """
     return [
         RubricDimensionSpec("technical_depth", 0.35),
         RubricDimensionSpec("problem_solving", 0.25),
@@ -17,6 +24,12 @@ def _rubric():
 
 
 def _strong_messages():
+    """构造包含强回答的面试消息。
+
+    Returns:
+        函数处理结果，类型为 未标注。
+
+    """
     answer = (
         "首先说明背景和目标，然后分析问题原因。我们设计了分层架构和缓存模块，"
         "通过限流与容灾应对高并发，最后延迟下降 30%，错误率下降 20%。"
@@ -28,6 +41,7 @@ def _strong_messages():
 
 
 def test_structured_report_contains_scores_evidence_and_actions():
+    """验证结构化报告包含评分证据和行动。"""
     report = build_interview_report(
         _strong_messages(),
         _rubric(),
@@ -47,6 +61,7 @@ def test_structured_report_contains_scores_evidence_and_actions():
 
 
 def test_strong_answer_scores_higher_than_vague_answer():
+    """验证强回答得分高于含糊回答。"""
     strong = build_interview_report(_strong_messages(), _rubric())
     vague_messages = [
         {"role": "interviewer", "content": "请介绍项目架构"},
@@ -59,12 +74,14 @@ def test_strong_answer_scores_higher_than_vague_answer():
 
 
 def test_report_roundtrip():
+    """验证报告往返。"""
     report = build_interview_report(_strong_messages(), _rubric())
     restored = InterviewReport.from_dict(report.to_dict())
     assert restored == report
 
 
 def test_progress_records_sort_and_skip_old_sessions():
+    """验证进度记录排序和跳过旧会话。"""
     sessions = [
         {"started_at": "2026-02-01", "mode": "技术一面", "structured_report": {"overall_score": 6.0}, "tags": []},
         {"started_at": "2026-01-01", "mode": "技术一面", "structured_report": {"overall_score": 5.0}, "tags": []},
@@ -76,6 +93,7 @@ def test_progress_records_sort_and_skip_old_sessions():
 
 
 def test_compare_weak_areas():
+    """验证比较薄弱领域变化。"""
     change = compare_weak_areas(["RAG", "系统设计"], ["RAG", "Temporal"])
     assert change.new_areas == ("系统设计",)
     assert change.resolved_areas == ("Temporal",)

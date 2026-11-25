@@ -1,3 +1,4 @@
+"""检索器模块，负责本地向量模型检测、BM25/FAISS 混合检索和降级。"""
 import os
 from pathlib import Path
 
@@ -7,6 +8,12 @@ from interview_loop.config import EMBEDDING_CACHE_NAME, EMBEDDING_MODEL_NAME
 
 
 def has_local_embedding_model() -> bool:
+    """判断本地是否缓存了向量模型。
+
+    Returns:
+        函数处理结果，类型为 bool。
+
+    """
     try:
         hf_home = Path(os.getenv("HF_HOME", Path.home() / ".cache" / "huggingface"))
         model_dir = hf_home / "hub" / EMBEDDING_CACHE_NAME
@@ -27,6 +34,12 @@ def has_local_embedding_model() -> bool:
 
 @st.cache_resource(show_spinner=False)
 def get_embeddings():
+    """加载本地 SentenceTransformer 向量模型。
+
+    Returns:
+        函数处理结果，类型为 未标注。
+
+    """
     from langchain_community.embeddings import SentenceTransformerEmbeddings
 
     return SentenceTransformerEmbeddings(
@@ -36,6 +49,19 @@ def get_embeddings():
 
 
 def build_rag(text: str):
+    """构建 BM25/FAISS 混合检索器。
+
+    Args:
+        text: `text` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 未标注。
+
+    Raises:
+        ValueError: 当输入、状态或外部依赖不满足要求时抛出 ValueError。
+        RuntimeError: 当输入、状态或外部依赖不满足要求时抛出 RuntimeError。
+
+    """
     try:
         import jieba
         from langchain.retrievers import EnsembleRetriever
@@ -68,6 +94,16 @@ def build_rag(text: str):
 
 
 def query_resume(retriever, query: str) -> str:
+    """查询简历检索器。
+
+    Args:
+        retriever: `retriever` 输入参数，类型为 未标注。
+        query: `query` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     if retriever is None:
         return ""
     try:

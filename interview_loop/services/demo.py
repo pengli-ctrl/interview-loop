@@ -1,9 +1,20 @@
+"""Demo 服务模块，负责固定题目、演示复盘和标签响应生成。"""
 import re
 
 DEMO_ANSWER = "这是演示模式下的示例回答。系统会继续模拟追问、阶段推进和复盘，不会调用真实模型或语音接口。"
 
 
 def build_demo_llm_response(system_prompt: str, user_msg: str) -> str:
+    """生成 Demo 模式的固定模型响应。
+
+    Args:
+        system_prompt: `system_prompt` 输入参数，类型为 str。
+        user_msg: `user_msg` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     if "JSON 数组" in user_msg:
         return '["RAG", "Temporal"]'
     if "面试评审" in system_prompt:

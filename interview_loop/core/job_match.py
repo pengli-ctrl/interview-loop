@@ -1,3 +1,4 @@
+"""岗位匹配模块，负责 JD/简历技能提取、匹配评分、风险分析和模型上下文构建。"""
 import json
 import re
 from dataclasses import dataclass
@@ -6,11 +7,13 @@ from pathlib import Path
 
 
 class JobDescriptionError(ValueError):
+    """表示岗位 JD 校验失败的异常。"""
     pass
 
 
 @dataclass(frozen=True)
 class SkillDefinition:
+    """技能名称、分类和别名定义。"""
     name: str
     category: str
     aliases: tuple[str, ...]
@@ -18,12 +21,14 @@ class SkillDefinition:
 
 @dataclass(frozen=True)
 class SkillCatalog:
+    """带版本的技能目录。"""
     version: str
     skills: tuple[SkillDefinition, ...]
 
 
 @dataclass(frozen=True)
 class JobMatchReport:
+    """JD 与简历匹配结果。"""
     match_score: int
     match_level: str
     jd_skills: tuple[str, ...]
@@ -36,6 +41,15 @@ class JobMatchReport:
 
     @classmethod
     def from_dict(cls, data: dict) -> "JobMatchReport":
+        """从字典。
+
+        Args:
+            data: `data` 输入参数，类型为 dict。
+
+        Returns:
+            函数处理结果，类型为 'JobMatchReport'。
+
+        """
         return cls(
             match_score=int(data.get("match_score", 0)),
             match_level=str(data.get("match_level", "poor")),
@@ -49,6 +63,12 @@ class JobMatchReport:
         )
 
     def to_dict(self) -> dict:
+        """转换为字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {
             "match_score": self.match_score,
             "match_level": self.match_level,
@@ -63,10 +83,29 @@ class JobMatchReport:
 
 
 def normalize_text(text: str) -> str:
+    """规范化空白和大小写。
+
+    Args:
+        text: `text` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     return re.sub(r"\s+", " ", str(text or "").strip().lower())
 
 
 def _matches_alias(text: str, alias: str) -> bool:
+    """判断技能别名是否按边界命中。
+
+    Args:
+        text: `text` 输入参数，类型为 str。
+        alias: `alias` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 bool。
+
+    """
     normalized_alias = normalize_text(alias)
     if not normalized_alias:
         return False
@@ -81,6 +120,16 @@ def _matches_alias(text: str, alias: str) -> bool:
 
 
 def extract_skills(text: str, catalog: SkillCatalog) -> list[str]:
+    """从文本中提取目录内技能。
+
+    Args:
+        text: `text` 输入参数，类型为 str。
+        catalog: `catalog` 输入参数，类型为 SkillCatalog。
+
+    Returns:
+        函数处理结果，类型为 list[str]。
+
+    """
     normalized = normalize_text(text)
     result = []
     for skill in catalog.skills:
@@ -90,6 +139,19 @@ def extract_skills(text: str, catalog: SkillCatalog) -> list[str]:
 
 
 def validate_job_description(text: str, catalog: SkillCatalog) -> str:
+    """校验 JD 长度，目录外不阻断。
+
+    Args:
+        text: `text` 输入参数，类型为 str。
+        catalog: `catalog` 输入参数，类型为 SkillCatalog。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    Raises:
+        JobDescriptionError: 当输入、状态或外部依赖不满足要求时抛出 JobDescriptionError。
+
+    """
     value = str(text or "").strip()
     if len(value) < 40:
         raise JobDescriptionError("岗位 JD 过短，请至少提供职责、技能或任职要求")
@@ -101,6 +163,17 @@ def assess_job_match(
     resume_text: str,
     catalog: SkillCatalog,
 ) -> JobMatchReport:
+    """评估 JD 与简历的技能匹配度和风险。
+
+    Args:
+        job_description: `job_description` 输入参数，类型为 str。
+        resume_text: `resume_text` 输入参数，类型为 str。
+        catalog: `catalog` 输入参数，类型为 SkillCatalog。
+
+    Returns:
+        函数处理结果，类型为 JobMatchReport。
+
+    """
     validate_job_description(job_description, catalog)
     jd_skills = tuple(extract_skills(job_description, catalog))
     resume_skills = tuple(extract_skills(resume_text, catalog))
@@ -156,6 +229,15 @@ def assess_job_match(
 
 
 def build_job_context(report: JobMatchReport | None) -> str:
+    """把岗位匹配结果压缩为出题上下文。
+
+    Args:
+        report: `report` 输入参数，类型为 JobMatchReport | None。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     if report is None:
         return ""
     if report.match_level == "unscored":
@@ -173,6 +255,15 @@ def build_job_context(report: JobMatchReport | None) -> str:
 
 @lru_cache(maxsize=1)
 def load_default_skill_catalog() -> SkillCatalog:
+    """加载并缓存默认技能目录。
+
+    Returns:
+        函数处理结果，类型为 SkillCatalog。
+
+    Raises:
+        JobDescriptionError: 当输入、状态或外部依赖不满足要求时抛出 JobDescriptionError。
+
+    """
     path = (
         Path(__file__).resolve().parents[1]
         / "scenarios"

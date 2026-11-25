@@ -1,3 +1,4 @@
+"""只读平台控制面模块，负责场景、模型、工具、Run、配额和评估数据的查询与格式化。"""
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -6,6 +7,15 @@ from interview_loop.evaluation.quality import evaluate_quality
 
 
 def scenario_rows(registry) -> list[dict]:
+    """把场景注册表转换为控制台表格行。
+
+    Args:
+        registry: `registry` 输入参数，类型为 未标注。
+
+    Returns:
+        函数处理结果，类型为 list[dict]。
+
+    """
     return [
         {
             "ID": item.id,
@@ -24,6 +34,15 @@ def scenario_rows(registry) -> list[dict]:
 
 
 def tool_rows(registry) -> list[dict]:
+    """把工具注册表转换为控制台表格行。
+
+    Args:
+        registry: `registry` 输入参数，类型为 未标注。
+
+    Returns:
+        函数处理结果，类型为 list[dict]。
+
+    """
     return [
         {
             "工具": item.name,
@@ -40,6 +59,15 @@ def tool_rows(registry) -> list[dict]:
 
 
 def model_profile_rows(gateway) -> list[dict]:
+    """把模型路由配置转换为表格行。
+
+    Args:
+        gateway: `gateway` 输入参数，类型为 未标注。
+
+    Returns:
+        函数处理结果，类型为 list[dict]。
+
+    """
     rows = []
     for task in ("question", "tagging", "review"):
         for profile in gateway.profiles_for(task):
@@ -58,11 +86,30 @@ def model_profile_rows(gateway) -> list[dict]:
 
 
 def recent_runs(repository, limit: int = 20):
+    """按更新时间倒序返回最近 AgentRun。
+
+    Args:
+        repository: `repository` 输入参数，类型为 未标注。
+        limit: `limit` 输入参数，类型为 int。
+
+    Returns:
+        函数处理结果，类型为 未标注。
+
+    """
     runs = repository.list()
     return sorted(runs, key=lambda run: run.updated_at, reverse=True)[:limit]
 
 
 def run_rows(runs) -> list[dict]:
+    """把 AgentRun 转换为控制台表格行。
+
+    Args:
+        runs: `runs` 输入参数，类型为 未标注。
+
+    Returns:
+        函数处理结果，类型为 list[dict]。
+
+    """
     return [
         {
             "Run": run.run_id,
@@ -78,10 +125,29 @@ def run_rows(runs) -> list[dict]:
 
 
 def recent_run_rows(repository, limit: int = 20) -> list[dict]:
+    """返回最近 AgentRun 的表格行。
+
+    Args:
+        repository: `repository` 输入参数，类型为 未标注。
+        limit: `limit` 输入参数，类型为 int。
+
+    Returns:
+        函数处理结果，类型为 list[dict]。
+
+    """
     return run_rows(recent_runs(repository, limit))
 
 
 def quality_metrics(path: str | Path) -> dict:
+    """读取黄金集并计算质量校准指标。
+
+    Args:
+        path: `path` 输入参数，类型为 str | Path。
+
+    Returns:
+        函数处理结果，类型为 dict。
+
+    """
     dataset = json.loads(Path(path).read_text(encoding="utf-8"))
     report = evaluate_quality(dataset)
     return {
@@ -95,6 +161,15 @@ def quality_metrics(path: str | Path) -> dict:
 
 
 def format_rag_thresholds(thresholds: dict) -> str:
+    """把 RAG 阈值格式化为可读文本。
+
+    Args:
+        thresholds: `thresholds` 输入参数，类型为 dict。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     return (
         f"Precision ≥ {float(thresholds.get('precision', 0)):.2f} · "
         f"Recall ≥ {float(thresholds.get('recall', 0)):.2f} · "
@@ -104,6 +179,15 @@ def format_rag_thresholds(thresholds: dict) -> str:
 
 
 def format_quality_thresholds(thresholds: dict) -> str:
+    """把质量阈值格式化为可读文本。
+
+    Args:
+        thresholds: `thresholds` 输入参数，类型为 dict。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     return (
         f"加权 MAE ≤ {float(thresholds.get('weighted_mae', 0)):.2f} · "
         f"单条最大 MAE ≤ {float(thresholds.get('max_case_mae', 0)):.2f}"
@@ -111,6 +195,15 @@ def format_quality_thresholds(thresholds: dict) -> str:
 
 
 def format_quota_snapshot(snapshot: dict) -> str:
+    """把租户用量快照格式化为可读文本。
+
+    Args:
+        snapshot: `snapshot` 输入参数，类型为 dict。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     return (
         f"{int(snapshot.get('used_tokens', 0)):,} / "
         f"{int(snapshot.get('max_tokens', 0)):,} Token · "
@@ -120,6 +213,15 @@ def format_quota_snapshot(snapshot: dict) -> str:
 
 
 def format_local_time(value: str) -> str:
+    """把 UTC 时间格式化为东八区时间。
+
+    Args:
+        value: `value` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    """
     text = str(value or "").strip()
     if not text:
         return "-"

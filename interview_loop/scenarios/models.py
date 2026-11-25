@@ -1,12 +1,27 @@
+"""场景模型模块，负责场景包、阶段、Rubric 的数据模型和配置校验。"""
 from dataclasses import dataclass
 from typing import Any
 
 
 class ScenarioValidationError(ValueError):
+    """表示场景配置校验失败的异常。"""
     pass
 
 
 def _require_text(value: Any, field: str) -> str:
+    """内部辅助：校验字段为非空文本。
+
+    Args:
+        value: `value` 输入参数，类型为 Any。
+        field: `field` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 str。
+
+    Raises:
+        ScenarioValidationError: 当输入、状态或外部依赖不满足要求时抛出 ScenarioValidationError。
+
+    """
     text = str(value or "").strip()
     if not text:
         raise ScenarioValidationError(f"{field} must not be empty")
@@ -14,6 +29,19 @@ def _require_text(value: Any, field: str) -> str:
 
 
 def _text_list(value: Any, field: str) -> tuple[str, ...]:
+    """内部辅助：校验非空文本列表。
+
+    Args:
+        value: `value` 输入参数，类型为 Any。
+        field: `field` 输入参数，类型为 str。
+
+    Returns:
+        函数处理结果，类型为 tuple[str, ...]。
+
+    Raises:
+        ScenarioValidationError: 当输入、状态或外部依赖不满足要求时抛出 ScenarioValidationError。
+
+    """
     if not isinstance(value, list) or not value:
         raise ScenarioValidationError(f"{field} must be a non-empty list")
     result = tuple(_require_text(item, field) for item in value)
@@ -24,11 +52,24 @@ def _text_list(value: Any, field: str) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class RubricDimensionSpec:
+    """评分维度规格。"""
     name: str
     weight: float
 
     @classmethod
     def from_dict(cls, data: dict) -> "RubricDimensionSpec":
+        """从字典构造实例。
+
+        Args:
+            data: `data` 输入参数，类型为 dict。
+
+        Returns:
+            函数处理结果，类型为 'RubricDimensionSpec'。
+
+        Raises:
+            ScenarioValidationError: 当输入、状态或外部依赖不满足要求时抛出 ScenarioValidationError。
+
+        """
         name = _require_text(data.get("name"), "rubric.name")
         try:
             weight = float(data.get("weight"))
@@ -43,11 +84,18 @@ class RubricDimensionSpec:
         return cls(name=name, weight=weight)
 
     def to_dict(self) -> dict:
+        """转换为字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {"name": self.name, "weight": self.weight}
 
 
 @dataclass(frozen=True)
 class StageSpec:
+    """面试阶段规格。"""
     name: str
     description: str
     pool: tuple[str, ...]
@@ -57,6 +105,18 @@ class StageSpec:
 
     @classmethod
     def from_dict(cls, data: dict) -> "StageSpec":
+        """从字典构造实例。
+
+        Args:
+            data: `data` 输入参数，类型为 dict。
+
+        Returns:
+            函数处理结果，类型为 'StageSpec'。
+
+        Raises:
+            ScenarioValidationError: 当输入、状态或外部依赖不满足要求时抛出 ScenarioValidationError。
+
+        """
         name = _require_text(data.get("name"), "stage.name")
         description = _require_text(
             data.get("desc", data.get("description")),
@@ -97,6 +157,12 @@ class StageSpec:
         )
 
     def legacy_dict(self) -> dict:
+        """转换为旧版字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {
             "name": self.name,
             "desc": self.description,
@@ -107,11 +173,18 @@ class StageSpec:
         }
 
     def to_dict(self) -> dict:
+        """转换为字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return self.legacy_dict()
 
 
 @dataclass(frozen=True)
 class ScenarioSpec:
+    """单个面试场景规格。"""
     id: str
     job_family: str
     role: str
@@ -128,6 +201,19 @@ class ScenarioSpec:
 
     @classmethod
     def from_dict(cls, data: dict, pack: dict) -> "ScenarioSpec":
+        """从字典构造实例。
+
+        Args:
+            data: `data` 输入参数，类型为 dict。
+            pack: `pack` 输入参数，类型为 dict。
+
+        Returns:
+            函数处理结果，类型为 'ScenarioSpec'。
+
+        Raises:
+            ScenarioValidationError: 当输入、状态或外部依赖不满足要求时抛出 ScenarioValidationError。
+
+        """
         scenario_id = _require_text(data.get("id"), "scenario.id")
         interview_round = _require_text(
             data.get("interview_round"),
@@ -206,6 +292,12 @@ class ScenarioSpec:
         )
 
     def legacy_dict(self) -> dict:
+        """转换为旧版字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {
             "desc": self.description,
             "tags": list(self.tags),
@@ -214,6 +306,12 @@ class ScenarioSpec:
         }
 
     def to_dict(self) -> dict:
+        """转换为字典。
+
+        Returns:
+            函数处理结果，类型为 dict。
+
+        """
         return {
             "id": self.id,
             "job_family": self.job_family,
@@ -235,6 +333,7 @@ class ScenarioSpec:
 
 @dataclass(frozen=True)
 class ScenarioPack:
+    """场景包。"""
     schema_version: str
     job_family: str
     role: str
@@ -245,6 +344,18 @@ class ScenarioPack:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ScenarioPack":
+        """从字典构造实例。
+
+        Args:
+            data: `data` 输入参数，类型为 dict。
+
+        Returns:
+            函数处理结果，类型为 'ScenarioPack'。
+
+        Raises:
+            ScenarioValidationError: 当输入、状态或外部依赖不满足要求时抛出 ScenarioValidationError。
+
+        """
         schema_version = _require_text(data.get("schema_version"), "schema_version")
         if schema_version != "1.0":
             raise ScenarioValidationError(

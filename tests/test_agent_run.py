@@ -26,3 +26,34 @@ def test_agent_run_serialization():
     assert data["tenant_id"] == "t1"
     assert data["status"] == "running"
     assert data["events"][0]["event_type"] == "run.started"
+
+
+def test_agent_event_payload_is_pii_redacted():
+    run = AgentRun()
+    run.record_event(
+        "candidate.contact",
+        "interview.answer",
+        {"content": "email me@example.com or call 13800138000"},
+    )
+    data = run.to_dict()
+    content = data["events"][-1]["payload"]["content"]
+    assert "me@example.com" not in content
+    assert "13800138000" not in content
+    assert "[EMAIL]" in content
+    assert "[PHONE]" in content
+
+
+def test_agent_run_records_consent_and_retention():
+    run = AgentRun(
+        tenant_id="tenant-a",
+        user_id="user-a",
+        retention_policy="ephemeral",
+        consent_granted=True,
+    )
+    data = run.to_dict()
+    assert data["tenant_id"] == "tenant-a"
+    assert data["trace_id"]
+    assert data["retention_policy"] == "ephemeral"
+    assert data["retention_expires_at"]
+    assert data["consent_granted"] is True
+    assert data["consent_at"]

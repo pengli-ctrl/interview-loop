@@ -3,6 +3,12 @@ from datetime import datetime, timezone
 from enum import Enum
 from uuid import uuid4
 
+from interview_loop.platform.privacy import (
+    normalize_retention_policy,
+    redact_value,
+    retention_expires_at,
+)
+
 
 class RunStatus(Enum):
     CREATED = "created"
@@ -29,13 +35,26 @@ class AgentRun:
     tenant_id: str = "default"
     user_id: str = "anonymous"
     workflow_version: str = "v1"
+    trace_id: str = field(default_factory=lambda: str(uuid4()))
     run_id: str = field(default_factory=lambda: str(uuid4()))
     status: RunStatus = RunStatus.CREATED
     current_node: str = ""
     events: list[AgentEvent] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
+    retention_policy: str = "standard"
+    retention_expires_at: str | None = None
+    consent_granted: bool = False
+    consent_at: str | None = None
+    consent_version: str = "v1"
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
+
+    def __post_init__(self) -> None:
+        self.retention_policy = normalize_retention_policy(self.retention_policy)
+        if self.retention_expires_at is None:
+            self.retention_expires_at = retention_expires_at(self.retention_policy)
+        if self.consent_granted and self.consent_at is None:
+            self.consent_at = utc_now()
 
     def start(self, node: str = "interview.start") -> None:
         self.status = RunStatus.RUNNING
@@ -54,7 +73,7 @@ class AgentRun:
             AgentEvent(
                 event_type=event_type,
                 node=node,
-                payload=payload or {},
+                payload=redact_value(payload or {}),
                 duration_ms=duration_ms,
             )
         )
@@ -71,12 +90,18 @@ class AgentRun:
     def to_dict(self) -> dict:
         return {
             "run_id": self.run_id,
+            "trace_id": self.trace_id,
             "tenant_id": self.tenant_id,
             "user_id": self.user_id,
             "workflow_version": self.workflow_version,
             "status": self.status.value,
             "current_node": self.current_node,
-            "metadata": self.metadata,
+            "metadata": redact_value(self.metadata),
+            "retention_policy": self.retention_policy,
+            "retention_expires_at": self.retention_expires_at,
+            "consent_granted": self.consent_granted,
+            "consent_at": self.consent_at,
+            "consent_version": self.consent_version,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "events": [event.__dict__ for event in self.events],

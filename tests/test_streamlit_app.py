@@ -3,10 +3,14 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 import interview_loop.config as config
+from interview_loop.evaluation.replay import replay_agent_run
 
 
-def test_demo_interview_starts_and_advances(monkeypatch):
+def test_demo_interview_starts_and_advances(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "DEMO_MODE", True)
+    monkeypatch.setattr(config, "SAVE_DIR", tmp_path / "sessions")
+    monkeypatch.setattr(config, "RECORD_DIR", tmp_path / "records")
+    monkeypatch.setattr(config, "GLOBAL_STATS_PATH", tmp_path / "weak_stats.json")
 
     import interview_loop.services.llm as llm
     import interview_loop.services.tts as tts
@@ -18,6 +22,8 @@ def test_demo_interview_starts_and_advances(monkeypatch):
     at = AppTest.from_file(str(app_path), default_timeout=30).run()
     assert not at.exception
 
+    at.checkbox(key="consent_checkbox").check().run()
+    assert not at.exception
     at.button(key="start_interview").click().run(timeout=30)
     assert not at.exception
     assert at.session_state["current_question"]
@@ -46,3 +52,28 @@ def test_demo_interview_starts_and_advances(monkeypatch):
         assert not at.error, [item.value for item in at.error]
 
     assert at.session_state["current_stage_idx"] == 6
+
+    events = at.session_state["agent_run"].events
+    event_types = [event.event_type for event in events]
+    assert event_types.count("stage.transition") == 6
+    question_events = [
+        event for event in events if event.event_type == "question.generated"
+    ]
+    assert question_events[0].payload["stage_index"] == 0
+    assert "main_index" in question_events[0].payload
+
+    at.button(key="finish_interview").click().run(timeout=30)
+    assert not at.exception
+    assert not at.error, [item.value for item in at.error]
+    finished_events = at.session_state["agent_run"].events
+    finished_types = [event.event_type for event in finished_events]
+    assert "evaluation.completed" in finished_types
+    assert "record.exported" in finished_types
+    assert finished_types[-1] == "run.completed"
+    assert list((tmp_path / "sessions").glob("*.json"))
+    assert list((tmp_path / "records").glob("*.md"))
+    replay = replay_agent_run(at.session_state["agent_run"].to_dict())
+    assert replay.completed
+    assert replay.evaluation_completed
+    assert replay.record_exported
+    assert replay.final_stage == 6

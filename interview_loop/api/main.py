@@ -6,10 +6,11 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from interview_loop.api.security import Principal, get_principal
+from interview_loop.evaluation.agent_metrics import summarize_agent_runs
 from interview_loop.platform.agent_run import AgentRun, RunStatus
 from interview_loop.platform.builtin_tools import build_default_tool_registry
 from interview_loop.platform.run_repository import (
@@ -23,6 +24,7 @@ from interview_loop.platform.tool_registry import (
     ToolIdempotencyConflictError,
     ToolNotFoundError,
     ToolPermissionError,
+    ToolSchemaError,
     ToolTimeoutError,
 )
 
@@ -32,6 +34,9 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 class CreateRunRequest(BaseModel):
     workflow_version: str = "v1"
     metadata: dict = Field(default_factory=dict)
+    retention_policy: str = "standard"
+    consent_granted: bool = False
+    consent_version: str = "v1"
 
 
 class AppendEventRequest(BaseModel):
@@ -70,7 +75,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(
         title="InterviewLoop Agent API",
-        version="0.9.0",
+        version="0.10.0",
         description="Vertical agent-platform slice for interview run orchestration.",
     )
     db_path = Path(os.getenv("INTERVIEWLOOP_DB_PATH", BASE_DIR / "interview_loop.db"))
@@ -120,6 +125,8 @@ def create_app(
                     "max_retries": tool.max_retries,
                     "idempotent": tool.idempotent,
                     "idempotency_ttl_seconds": tool.idempotency_ttl_seconds,
+                    "input_schema": tool.input_schema,
+                    "output_schema": tool.output_schema,
                 }
                 for tool in request.app.state.tool_registry.list_tools()
             ]
@@ -131,12 +138,23 @@ def create_app(
         body: CreateRunRequest,
         current: Principal = Depends(principal),
     ) -> dict:
-        run = AgentRun(
-            tenant_id=current.tenant_id,
-            user_id=current.user_id,
-            workflow_version=body.workflow_version,
-            metadata=body.metadata,
-        )
+        if not body.consent_granted:
+            raise HTTPException(
+                status_code=422,
+                detail="Explicit recording and retention consent is required",
+            )
+        try:
+            run = AgentRun(
+                tenant_id=current.tenant_id,
+                user_id=current.user_id,
+                workflow_version=body.workflow_version,
+                metadata=body.metadata,
+                retention_policy=body.retention_policy,
+                consent_granted=body.consent_granted,
+                consent_version=body.consent_version,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         return repo(request).create(run).to_dict()
 
     @app.get("/v1/agent-runs")
@@ -148,6 +166,16 @@ def create_app(
             "runs": [run.to_dict() for run in repo(request).list(current.tenant_id)]
         }
 
+    @app.get("/v1/metrics")
+    def metrics(
+        request: Request,
+        current: Principal = Depends(principal),
+    ) -> dict:
+        runs = [
+            run.to_dict() for run in repo(request).list(current.tenant_id)
+        ]
+        return summarize_agent_runs(runs)
+
     @app.get("/v1/agent-runs/{run_id}")
     def get_run(
         request: Request,
@@ -155,6 +183,30 @@ def create_app(
         current: Principal = Depends(principal),
     ) -> dict:
         return owned_run(request, run_id, current).to_dict()
+
+    @app.get("/v1/agent-runs/{run_id}/export")
+    def export_run(
+        request: Request,
+        run_id: str,
+        current: Principal = Depends(principal),
+    ) -> JSONResponse:
+        run = owned_run(request, run_id, current)
+        return JSONResponse(
+            content=run.to_dict(),
+            headers={
+                "Content-Disposition": f'attachment; filename="{run_id}.json"'
+            },
+        )
+
+    @app.delete("/v1/agent-runs/{run_id}", status_code=204)
+    def delete_run(
+        request: Request,
+        run_id: str,
+        current: Principal = Depends(principal),
+    ) -> Response:
+        run = owned_run(request, run_id, current)
+        repo(request).delete(run.run_id)
+        return Response(status_code=204)
 
     @app.post("/v1/agent-runs/{run_id}/start")
     def start_run(
@@ -255,6 +307,9 @@ def create_app(
         except ToolIdempotencyConflictError as exc:
             repo(request).save(run)
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ToolSchemaError as exc:
+            repo(request).save(run)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ToolExecutionError as exc:
             repo(request).save(run)
             raise HTTPException(status_code=502, detail=str(exc)) from exc

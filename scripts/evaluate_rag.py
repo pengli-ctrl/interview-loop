@@ -34,6 +34,15 @@ def main() -> None:
     ]
     report = evaluate_retrieval(search, cases, k=int(dataset.get("k", 3)))
     print(json.dumps(asdict(report), ensure_ascii=False, indent=2))
+    thresholds = dataset.get("thresholds", {})
+    failed = [
+        name
+        for name, minimum in thresholds.items()
+        if float(getattr(report, name)) < float(minimum)
+    ]
+    if failed:
+        print(f"Retrieval thresholds failed: {', '.join(failed)}")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

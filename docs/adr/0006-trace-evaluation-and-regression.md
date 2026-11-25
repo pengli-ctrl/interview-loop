@@ -48,3 +48,8 @@ Record:
 ## Consequences
 
 The project becomes more than a prompt demo: it gains a path to measurable, comparable and governable Agent behavior.
+
+
+## Implementation Status
+
+The local regression loop now records stage transitions, evaluation completion, record export, model calls and tool calls. It includes retrieval thresholds, human-score calibration fixtures, Trace Replay, tenant metrics, and CI regression gates. Real interviewer-reviewed datasets and ongoing score calibration remain operational follow-ups.

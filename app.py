@@ -25,9 +25,14 @@ from interview_loop.core.question_engine import (
     questions_too_similar,
 )
 from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
-from interview_loop.platform.agent_run import AgentRun
+from interview_loop.export.markdown import safe_filename_part
+from interview_loop.platform.agent_run import AgentRun, RunStatus
 from interview_loop.platform.builtin_tools import build_default_tool_registry
-from interview_loop.platform.model_gateway import ModelGateway, default_usage_budget
+from interview_loop.platform.model_gateway import (
+    ModelGateway,
+    default_tenant_quota_store,
+    default_usage_budget,
+)
 from interview_loop.rag.resume import extract_resume_text
 from interview_loop.rag.retriever import build_rag, query_resume
 from interview_loop.services.asr import audio2text
@@ -41,8 +46,10 @@ from interview_loop.storage.session_store import (
     list_session_files as _list_session_files,
 )
 from interview_loop.storage.stats_store import load_stats, save_stats
+from interview_loop.storage.tenant_paths import tenant_scoped_dir
 
-MODEL_GATEWAY = ModelGateway()
+TENANT_QUOTA_STORE = default_tenant_quota_store()
+MODEL_GATEWAY = ModelGateway(tenant_quota_store=TENANT_QUOTA_STORE)
 TOOL_REGISTRY = build_default_tool_registry()
 
 
@@ -64,6 +71,7 @@ def record_model_call(result, node: str) -> None:
             "estimated_output_tokens": result.estimated_output_tokens,
             "estimated_cost": result.estimated_cost,
             "attempts": result.attempts,
+            "tenant_id": result.tenant_id,
             "budget_used_tokens": budget.used_tokens if budget else None,
             "budget_used_cost": round(budget.used_cost, 6) if budget else None,
         },
@@ -77,9 +85,69 @@ def record_run_error(error: Exception | str, node: str) -> None:
     agent_run.record_event("run.error", node, {"error": str(error)[:500]})
 
 
+def record_question_generated(
+    question: str,
+    mode_cfg: dict,
+    stage_idx: int,
+    main_index: int,
+    followup_index: int,
+) -> None:
+    agent_run = st.session_state.get("agent_run")
+    if agent_run is None:
+        return
+    stages = mode_cfg["stage_list"]
+    stage_name = stages[stage_idx]["name"] if stage_idx < len(stages) else "complete"
+    agent_run.record_event(
+        "question.generated",
+        "interview.question",
+        {
+            "question": question,
+            "stage_index": stage_idx,
+            "stage_name": stage_name,
+            "main_index": main_index,
+            "followup_index": followup_index,
+        },
+    )
+
+
+def record_stage_transition(mode_cfg: dict, from_index: int, to_index: int) -> None:
+    agent_run = st.session_state.get("agent_run")
+    if agent_run is None:
+        return
+    stages = mode_cfg["stage_list"]
+    from_name = stages[from_index]["name"] if from_index < len(stages) else "complete"
+    to_name = stages[to_index]["name"] if to_index < len(stages) else "complete"
+    agent_run.record_event(
+        "stage.transition",
+        "interview.stage",
+        {
+            "from_index": from_index,
+            "from_stage": from_name,
+            "to_index": to_index,
+            "to_stage": to_name,
+        },
+    )
+
+
 # ===================== 持久化与初始化 =====================
+def current_tenant_id() -> str:
+    return st.session_state.get("tenant_id", "local")
+
+
+def tenant_save_dir() -> Path:
+    path = tenant_scoped_dir(SAVE_DIR, current_tenant_id())
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def tenant_record_dir() -> Path:
+    path = tenant_scoped_dir(RECORD_DIR, current_tenant_id())
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def list_session_files() -> list[Path]:
-    return _list_session_files(SAVE_DIR)
+    return _list_session_files(tenant_save_dir())
 
 
 def save_global_weak_stats(stats: dict) -> None:
@@ -94,6 +162,7 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
     if st.session_state.get("start_time") is not None:
         duration_seconds = int(max(0, time.time() - st.session_state.start_time))
 
+    agent_run = st.session_state.get("agent_run")
     data = build_session_data(
         session_id=st.session_state.session_id,
         mode=mode,
@@ -105,20 +174,38 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
         started_at=started_at,
         completed_at=time.strftime("%Y-%m-%d %H:%M:%S"),
         duration_seconds=duration_seconds,
+        tenant_id=current_tenant_id(),
+        user_id=st.session_state.get("user_id", "local"),
+        trace_id=agent_run.trace_id if agent_run is not None else None,
+        consent_granted=st.session_state.get("consent_granted", False),
+        consent_at=st.session_state.get("consent_at"),
+        retention_policy=st.session_state.get("retention_policy", "standard"),
+        retention_expires_at=(
+            agent_run.retention_expires_at if agent_run is not None else None
+        ),
     )
-    agent_run = st.session_state.get("agent_run")
+    markdown_path, markdown = TOOL_REGISTRY.execute(
+        "record.export",
+        permissions={"record:write"},
+        record_dir=tenant_record_dir(),
+        data=data,
+    ).output
     if agent_run is not None:
+        agent_run.record_event(
+            "record.exported",
+            "record.export",
+            {
+                "path": str(markdown_path),
+                "markdown_chars": len(markdown),
+            },
+        )
+        if agent_run.status is RunStatus.RUNNING:
+            agent_run.complete("interview.review")
         data["agent_run"] = agent_run.to_dict()
     budget = st.session_state.get("model_budget")
     if budget is not None:
         data["model_usage"] = budget.to_dict()
-    json_path = save_session_json(SAVE_DIR, data)
-    markdown_path, markdown = TOOL_REGISTRY.execute(
-        "record.export",
-        permissions={"record:write"},
-        record_dir=RECORD_DIR,
-        data=data,
-    ).output
+    json_path = save_session_json(tenant_save_dir(), data)
     st.session_state.last_record_path = str(markdown_path)
     st.session_state.last_record_markdown = markdown
     st.session_state.session_list = list_session_files()
@@ -140,6 +227,11 @@ defaults = {
     "current_question": "",
     "feedback": None,
     "session_id": new_session_id(),
+    "tenant_id": "local",
+    "user_id": "local",
+    "consent_granted": False,
+    "consent_at": None,
+    "retention_policy": "standard",
     "resume_retriever": None,
     "resume_signature": None,
     "resume_name": None,
@@ -177,6 +269,8 @@ if st.session_state.get("interview_flow_version") != 4:
     st.session_state.last_record_markdown = None
     st.session_state.agent_run = None
     st.session_state.model_budget = default_usage_budget()
+    st.session_state.consent_granted = False
+    st.session_state.consent_at = None
     st.session_state.session_id = new_session_id()
     st.session_state.interview_flow_version = 4
 
@@ -198,6 +292,8 @@ def reset_interview_state() -> None:
     st.session_state.last_record_markdown = None
     st.session_state.agent_run = None
     st.session_state.model_budget = default_usage_budget()
+    st.session_state.consent_granted = False
+    st.session_state.consent_at = None
 # ===================== 简历解析与 RAG =====================
 def set_question_audio(question: str) -> None:
     try:
@@ -214,6 +310,7 @@ def extract_tags(review_text: str, valid_tags: list[str]) -> list[str]:
             "",
             build_tag_prompt(review_text, valid_tags),
             budget=st.session_state.get("model_budget"),
+            tenant_id=st.session_state.get("tenant_id", "local"),
         )
         record_model_call(result, "model.tagging")
         raw = result.content.strip()
@@ -258,6 +355,7 @@ def get_stage_question(
         prompt.system_prompt,
         "请给出当前这一题",
         budget=st.session_state.get("model_budget"),
+        tenant_id=st.session_state.get("tenant_id", "local"),
     )
     record_model_call(result, "model.question")
     question = result.content
@@ -267,6 +365,7 @@ def get_stage_question(
             build_repair_prompt(prompt.system_prompt),
             "请重新给出一个不同的问题",
             budget=st.session_state.get("model_budget"),
+            tenant_id=st.session_state.get("tenant_id", "local"),
         )
         record_model_call(repair_result, "model.question.repair")
         question = repair_result.content
@@ -286,6 +385,7 @@ def get_weak_question(mode: str) -> str:
         "你是面试出题专家",
         prompt,
         budget=st.session_state.get("model_budget"),
+        tenant_id=st.session_state.get("tenant_id", "local"),
     )
     record_model_call(result, "model.question.weak")
     return result.content
@@ -309,6 +409,7 @@ def generate_review(mode_cfg: dict) -> bool:
             reviewer_prompt,
             "",
             budget=st.session_state.get("model_budget"),
+            tenant_id=st.session_state.get("tenant_id", "local"),
         )
         record_model_call(result, "model.review")
         feedback = result.content
@@ -319,13 +420,21 @@ def generate_review(mode_cfg: dict) -> bool:
 
     st.session_state.feedback = feedback
     agent_run = st.session_state.get("agent_run")
-    if agent_run is not None:
-        agent_run.complete("interview.review")
     tags = extract_tags(feedback, tag_list)
     try:
         update_global_stats(st.session_state.mode, tags)
     except Exception as exc:
         st.warning(f"薄弱统计更新失败：{exc}")
+    if agent_run is not None:
+        agent_run.record_event(
+            "evaluation.completed",
+            "interview.evaluation",
+            {
+                "feedback_chars": len(feedback),
+                "tag_count": len(tags),
+                "tags": tags,
+            },
+        )
     try:
         save_session(st.session_state.mode, st.session_state.messages, feedback, tags)
     except Exception as exc:
@@ -424,11 +533,17 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
             st.session_state.current_stage_idx = next_stage_idx
             st.session_state.stage_main_index = 0
             st.session_state.stage_followup_count = 0
+            record_stage_transition(mode_cfg, current_stage_idx, next_stage_idx)
         else:
             question = "本次面试所有阶段完成，你可以说【结束面试】或点击 Finish 生成复盘。"
             st.session_state.current_stage_idx = len(mode_cfg["stage_list"])
             st.session_state.stage_main_index = 0
             st.session_state.stage_followup_count = 0
+            record_stage_transition(
+                mode_cfg,
+                current_stage_idx,
+                len(mode_cfg["stage_list"]),
+            )
     else:
         try:
             question = get_weak_question(st.session_state.mode)
@@ -437,12 +552,13 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
             return False
 
     st.session_state.current_question = question
-    if agent_run is not None:
-        agent_run.record_event(
-            "question.generated",
-            "interview.question",
-            {"question": question},
-        )
+    record_question_generated(
+        question,
+        mode_cfg,
+        st.session_state.current_stage_idx,
+        st.session_state.stage_main_index,
+        st.session_state.stage_followup_count,
+    )
     set_question_audio(question)
     return True
 
@@ -523,6 +639,11 @@ if st.session_state.interview_type == "闯关全真面试":
         )
         if st.button("⏭️ 跳过当前阶段", help="直接跳到下一阶段"):
             next_stage_idx = st.session_state.current_stage_idx + 1
+            record_stage_transition(
+                mode_cfg,
+                st.session_state.current_stage_idx,
+                next_stage_idx,
+            )
             st.session_state.current_stage_idx = next_stage_idx
             st.session_state.stage_main_index = 0
             st.session_state.stage_followup_count = 0
@@ -607,7 +728,30 @@ with col_main:
                 f"检索模式：{st.session_state.resume_rag_mode}｜后续重跑不会重复解析"
             )
     if st.session_state.start_time is None:
-        if st.button("▶️ 开始面试计时", key="start_interview"):
+        consent = st.checkbox(
+            "我同意保存本次简历、文字或语音回答与复盘记录，并知悉数据保留策略。",
+            value=st.session_state.consent_granted,
+            key="consent_checkbox",
+        )
+        if consent and not st.session_state.consent_granted:
+            st.session_state.consent_granted = True
+            st.session_state.consent_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        elif not consent:
+            st.session_state.consent_granted = False
+            st.session_state.consent_at = None
+        st.session_state.retention_policy = st.selectbox(
+            "数据保留策略",
+            ["ephemeral", "standard", "extended"],
+            index=["ephemeral", "standard", "extended"].index(
+                st.session_state.retention_policy
+            ),
+            help="ephemeral=1天，standard=30天，extended=365天",
+        )
+        if st.button(
+            "开始面试计时",
+            key="start_interview",
+            disabled=not st.session_state.consent_granted,
+        ):
             if (
                 st.session_state.interview_type == "闯关全真面试"
                 and st.session_state.current_stage_idx >= len(mode_cfg["stage_list"])
@@ -616,11 +760,16 @@ with col_main:
             else:
                 st.session_state.model_budget = default_usage_budget()
                 agent_run = AgentRun(
+                    tenant_id=current_tenant_id(),
+                    user_id=st.session_state.get("user_id", "local"),
+                    retention_policy=st.session_state.get("retention_policy", "standard"),
+                    consent_granted=st.session_state.get("consent_granted", False),
+                    consent_at=st.session_state.get("consent_at"),
                     metadata={
                         "mode": st.session_state.mode,
                         "interview_type": st.session_state.interview_type,
                         "style": st.session_state.style,
-                    }
+                    },
                 )
                 agent_run.start("interview.start")
                 st.session_state.agent_run = agent_run
@@ -648,10 +797,12 @@ with col_main:
                         "%Y-%m-%d_%H-%M-%S"
                     )
                     st.session_state.current_question = question
-                    agent_run.record_event(
-                        "question.generated",
-                        "interview.question",
-                        {"question": question},
+                    record_question_generated(
+                        question,
+                        mode_cfg,
+                        st.session_state.current_stage_idx,
+                        st.session_state.stage_main_index,
+                        st.session_state.stage_followup_count,
                     )
                     st.session_state.agent_run = agent_run
                     set_question_audio(question)
@@ -827,7 +978,23 @@ with col_side:
             st.session_state.last_record_markdown = None
             st.session_state.agent_run = None
             st.session_state.model_budget = default_usage_budget()
+            st.session_state.consent_granted = saved.get("consent_granted", False)
+            st.session_state.consent_at = saved.get("consent_at")
+            st.session_state.retention_policy = saved.get("retention_policy", "standard")
             st.session_state.session_id = new_session_id()
+            st.rerun()
+        if st.button("删除这条记录", key=f"delete_{session_file.stem}"):
+            session_file.unlink(missing_ok=True)
+            markdown_name = "_".join(
+                [
+                    safe_filename_part(saved.get("started_at", "未知")),
+                    safe_filename_part(saved.get("mode", "未知")),
+                    safe_filename_part(saved.get("interview_type", "未知")),
+                    safe_filename_part(saved.get("style", "未知")),
+                ]
+            ) + ".md"
+            (tenant_record_dir() / markdown_name).unlink(missing_ok=True)
+            st.session_state.session_list = list_session_files()
             st.rerun()
 
 st.caption(

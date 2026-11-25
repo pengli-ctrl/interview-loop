@@ -2,9 +2,13 @@ import pytest
 
 from interview_loop.platform.model_gateway import (
     BudgetExceededError,
+    CircuitBreakerPolicy,
     ModelGateway,
     ModelProfile,
     ModelUnavailableError,
+    TenantQuota,
+    TenantQuotaExceededError,
+    TenantQuotaStore,
     UsageBudget,
     estimate_tokens,
 )
@@ -18,6 +22,7 @@ def test_model_gateway_routes_tasks():
     assert result.provider == "default"
     assert result.model
     assert result.estimated_input_tokens > 0
+    assert result.tenant_id == "local"
 
 
 def test_unknown_task_uses_default_profile():
@@ -83,6 +88,103 @@ def test_all_providers_failed_raises_with_attempt_details():
     )
     with pytest.raises(ModelUnavailableError, match="primary attempt 1: down"):
         gateway.complete("review", "system", "user")
+
+
+def test_circuit_opens_after_threshold_and_skips_provider():
+    clock = [0.0]
+    calls = []
+
+    def failing(system_prompt, user_msg):
+        calls.append(1)
+        raise RuntimeError("down")
+
+    gateway = ModelGateway(
+        providers={"primary": failing},
+        profiles={
+            "review": [
+                ModelProfile("primary", "model-a", "review-v1", max_retries=0)
+            ]
+        },
+        circuit_breaker_policy=CircuitBreakerPolicy(
+            failure_threshold=2,
+            cooldown_seconds=10,
+        ),
+        clock=lambda: clock[0],
+    )
+
+    for _ in range(2):
+        with pytest.raises(ModelUnavailableError):
+            gateway.complete("review", "system", "user")
+    with pytest.raises(ModelUnavailableError, match="circuit open"):
+        gateway.complete("review", "system", "user")
+    assert len(calls) == 2
+
+
+def test_circuit_half_open_recovers_after_cooldown():
+    clock = [0.0]
+    calls = []
+
+    def flaky(system_prompt, user_msg):
+        calls.append(1)
+        if len(calls) <= 2:
+            raise RuntimeError("down")
+        return "recovered"
+
+    gateway = ModelGateway(
+        providers={"primary": flaky},
+        profiles={
+            "review": [
+                ModelProfile("primary", "model-a", "review-v1", max_retries=0)
+            ]
+        },
+        circuit_breaker_policy=CircuitBreakerPolicy(
+            failure_threshold=2,
+            cooldown_seconds=10,
+        ),
+        clock=lambda: clock[0],
+    )
+
+    for _ in range(2):
+        with pytest.raises(ModelUnavailableError):
+            gateway.complete("review", "system", "user")
+    clock[0] = 11
+    result = gateway.complete("review", "system", "user")
+    assert result.content == "recovered"
+    assert len(calls) == 3
+
+
+def test_tenant_quota_is_isolated_between_tenants():
+    clock = [0.0]
+    store = TenantQuotaStore(
+        TenantQuota(max_tokens=5, max_cost=100.0),
+        clock=lambda: clock[0],
+    )
+    store.add("tenant-a", 4, 0)
+    gateway = ModelGateway(
+        completer=lambda system_prompt, user_msg: "ok",
+        tenant_quota_store=store,
+    )
+
+    with pytest.raises(TenantQuotaExceededError):
+        gateway.complete("review", "system", "user", tenant_id="tenant-a")
+
+    result = gateway.complete("review", "system", "user", tenant_id="tenant-b")
+    assert result.content == "ok"
+    assert result.tenant_id == "tenant-b"
+
+
+def test_tenant_quota_window_resets_usage():
+    clock = [0.0]
+    store = TenantQuotaStore(
+        TenantQuota(max_tokens=5, max_cost=100.0, window_seconds=10),
+        clock=lambda: clock[0],
+    )
+    store.add("tenant-a", 5, 0)
+    with pytest.raises(TenantQuotaExceededError):
+        store.check("tenant-a", 1, 0)
+    clock[0] = 11
+    store.check("tenant-a", 1, 0)
+    assert store.snapshot("tenant-a")["used_tokens"] == 0
 
 
 def test_budget_accumulates_usage():

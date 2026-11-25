@@ -38,3 +38,8 @@ Tool specifications must declare:
 ## Consequences
 
 Public deployment is blocked until these controls exist. The current local MVP remains suitable for invited, non-production testing only.
+
+
+## Implementation Status
+
+The single-process slice now carries trace ID and retention metadata, requires explicit consent, redacts common PII from trace payloads, scopes local paths by tenant, supports export and deletion, validates tool input/output schemas, and persists audit events in SQLite. Centralized identity, durable centralized audit storage, and legal retention operations remain production follow-ups.

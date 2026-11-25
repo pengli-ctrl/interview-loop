@@ -1,4 +1,5 @@
 import os
+import threading
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Callable
@@ -13,6 +14,10 @@ class ModelUnavailableError(RuntimeError):
 
 
 class BudgetExceededError(RuntimeError):
+    pass
+
+
+class TenantQuotaExceededError(BudgetExceededError):
     pass
 
 
@@ -39,6 +44,7 @@ class ModelResult:
     estimated_output_tokens: int
     estimated_cost: float
     attempts: int
+    tenant_id: str = "local"
 
 
 @dataclass
@@ -86,10 +92,102 @@ class UsageBudget:
         }
 
 
+@dataclass(frozen=True)
+class TenantQuota:
+    max_tokens: int
+    max_cost: float
+    window_seconds: float = 86400
+
+
+@dataclass
+class TenantUsage:
+    window_started: float
+    used_tokens: int = 0
+    used_cost: float = 0.0
+
+
+class TenantQuotaStore:
+    """Process-local rolling tenant quota used by the current single-process slice."""
+
+    def __init__(
+        self,
+        quota: TenantQuota,
+        *,
+        clock: Callable[[], float] = perf_counter,
+    ) -> None:
+        self.quota = quota
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._usage: dict[str, TenantUsage] = {}
+
+    def _current_usage(self, tenant_id: str) -> TenantUsage:
+        now = self._clock()
+        usage = self._usage.get(tenant_id)
+        if usage is None or now - usage.window_started >= self.quota.window_seconds:
+            usage = TenantUsage(window_started=now)
+            self._usage[tenant_id] = usage
+        return usage
+
+    def check(self, tenant_id: str, tokens: int, cost: float) -> None:
+        with self._lock:
+            usage = self._current_usage(tenant_id)
+            next_tokens = usage.used_tokens + max(0, int(tokens))
+            next_cost = usage.used_cost + max(0.0, float(cost))
+            if (
+                next_tokens > self.quota.max_tokens
+                or next_cost > self.quota.max_cost
+            ):
+                raise TenantQuotaExceededError(
+                    f"Tenant model quota exceeded for {tenant_id}: "
+                    f"tokens={next_tokens}/{self.quota.max_tokens}, "
+                    f"cost={next_cost:.4f}/{self.quota.max_cost:.4f}"
+                )
+
+    def add(self, tenant_id: str, tokens: int, cost: float) -> None:
+        with self._lock:
+            usage = self._current_usage(tenant_id)
+            usage.used_tokens += max(0, int(tokens))
+            usage.used_cost += max(0.0, float(cost))
+
+    def snapshot(self, tenant_id: str) -> dict:
+        with self._lock:
+            usage = self._current_usage(tenant_id)
+            return {
+                "tenant_id": tenant_id,
+                "window_seconds": self.quota.window_seconds,
+                "max_tokens": self.quota.max_tokens,
+                "used_tokens": usage.used_tokens,
+                "max_cost": self.quota.max_cost,
+                "used_cost": round(usage.used_cost, 6),
+            }
+
+
+@dataclass(frozen=True)
+class CircuitBreakerPolicy:
+    failure_threshold: int = 3
+    cooldown_seconds: float = 30.0
+
+
+@dataclass
+class _ProviderCircuitState:
+    failures: int = 0
+    opened_at: float | None = None
+
+
 def default_usage_budget() -> UsageBudget:
     return UsageBudget(
         max_tokens=int(os.getenv("llm_max_tokens_per_run", "200000")),
         max_cost=float(os.getenv("llm_max_cost_per_run", "5.0")),
+    )
+
+
+def default_tenant_quota_store() -> TenantQuotaStore:
+    return TenantQuotaStore(
+        TenantQuota(
+            max_tokens=int(os.getenv("llm_tenant_max_tokens", "1000000")),
+            max_cost=float(os.getenv("llm_tenant_max_cost", "50.0")),
+            window_seconds=float(os.getenv("llm_tenant_quota_window_seconds", "86400")),
+        )
     )
 
 
@@ -104,6 +202,9 @@ class ModelGateway:
         *,
         providers: dict[str, Callable[[str, str], str]] | None = None,
         profiles: dict[str, list[ModelProfile]] | None = None,
+        circuit_breaker_policy: CircuitBreakerPolicy | None = None,
+        tenant_quota_store: TenantQuotaStore | None = None,
+        clock: Callable[[], float] = perf_counter,
     ) -> None:
         if providers is None:
             if completer is None:
@@ -122,6 +223,18 @@ class ModelGateway:
             ]
             for task in ("question", "tagging", "review")
         }
+        self._breaker_policy = circuit_breaker_policy or CircuitBreakerPolicy(
+            failure_threshold=max(
+                1, int(os.getenv("llm_circuit_failure_threshold", "3"))
+            ),
+            cooldown_seconds=float(
+                os.getenv("llm_circuit_cooldown_seconds", "30")
+            ),
+        )
+        self._breaker_lock = threading.Lock()
+        self._breaker_state: dict[str, _ProviderCircuitState] = {}
+        self._tenant_quota_store = tenant_quota_store
+        self._clock = clock
 
     def profiles_for(self, task: str) -> list[ModelProfile]:
         return list(
@@ -138,6 +251,7 @@ class ModelGateway:
         user_msg: str,
         *,
         budget: UsageBudget | None = None,
+        tenant_id: str = "local",
     ) -> ModelResult:
         errors: list[str] = []
         total_attempts = 0
@@ -152,24 +266,32 @@ class ModelGateway:
             input_cost = input_tokens * profile.input_cost_per_million / 1_000_000
             if budget is not None:
                 budget.check(input_tokens, input_cost)
+            if self._tenant_quota_store is not None:
+                self._tenant_quota_store.check(tenant_id, input_tokens, input_cost)
 
             retries = max(0, int(profile.max_retries))
             for attempt in range(1, retries + 2):
+                if not self._circuit_available(profile.provider):
+                    errors.append(f"provider {profile.provider} circuit open")
+                    break
                 total_attempts += 1
                 started = perf_counter()
                 try:
                     content = provider(system_prompt, user_msg)
                 except Exception as exc:
+                    self._record_provider_failure(profile.provider)
                     errors.append(f"{profile.provider} attempt {attempt}: {exc}")
                     continue
 
                 latency_ms = int((perf_counter() - started) * 1000)
                 if not isinstance(content, str) or not content.strip():
+                    self._record_provider_failure(profile.provider)
                     errors.append(
                         f"{profile.provider} attempt {attempt}: empty model response"
                     )
                     continue
 
+                self._record_provider_success(profile.provider)
                 output_tokens = estimate_tokens(content)
                 cost = (
                     input_tokens * profile.input_cost_per_million
@@ -177,6 +299,12 @@ class ModelGateway:
                 ) / 1_000_000
                 if budget is not None:
                     budget.add(input_tokens + output_tokens, cost)
+                if self._tenant_quota_store is not None:
+                    self._tenant_quota_store.add(
+                        tenant_id,
+                        input_tokens + output_tokens,
+                        cost,
+                    )
                 return ModelResult(
                     content=content,
                     task=task,
@@ -188,9 +316,43 @@ class ModelGateway:
                     estimated_output_tokens=output_tokens,
                     estimated_cost=cost,
                     attempts=total_attempts,
+                    tenant_id=tenant_id,
                 )
 
         detail = "; ".join(errors) or "no model profiles configured"
         raise ModelUnavailableError(
             f"All model providers failed for task={task}: {detail}"
         )
+
+    def _circuit_available(self, provider_name: str) -> bool:
+        if self._breaker_policy.failure_threshold <= 0:
+            return True
+        with self._breaker_lock:
+            state = self._breaker_state.setdefault(
+                provider_name,
+                _ProviderCircuitState(),
+            )
+            if state.opened_at is None:
+                return True
+            elapsed = self._clock() - state.opened_at
+            if elapsed < self._breaker_policy.cooldown_seconds:
+                return False
+            state.opened_at = None
+            state.failures = max(0, self._breaker_policy.failure_threshold - 1)
+            return True
+
+    def _record_provider_failure(self, provider_name: str) -> None:
+        if self._breaker_policy.failure_threshold <= 0:
+            return
+        with self._breaker_lock:
+            state = self._breaker_state.setdefault(
+                provider_name,
+                _ProviderCircuitState(),
+            )
+            state.failures += 1
+            if state.failures >= self._breaker_policy.failure_threshold:
+                state.opened_at = self._clock()
+
+    def _record_provider_success(self, provider_name: str) -> None:
+        with self._breaker_lock:
+            self._breaker_state[provider_name] = _ProviderCircuitState()

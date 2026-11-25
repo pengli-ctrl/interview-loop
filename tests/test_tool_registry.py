@@ -8,6 +8,7 @@ from interview_loop.platform.tool_registry import (
     ToolNotFoundError,
     ToolPermissionError,
     ToolRegistry,
+    ToolSchemaError,
     ToolSpec,
     ToolTimeoutError,
 )
@@ -191,3 +192,42 @@ def test_audit_events_include_tool_and_tenant_context():
     assert events[-1].tenant_id == "tenant-a"
     assert events[-1].run_id == "run-a"
     assert events[-1].input_digest
+
+
+def test_input_schema_rejects_before_handler_execution():
+    calls = []
+    events = []
+    registry = ToolRegistry()
+    registry.register(
+        ToolSpec(
+            "strict",
+            "strict input",
+            lambda value: calls.append(value) or value,
+            input_schema={
+                "type": "object",
+                "required": ["value"],
+                "properties": {"value": {"type": "integer"}},
+                "additionalProperties": False,
+            },
+        )
+    )
+    with pytest.raises(ToolSchemaError, match="input schema"):
+        registry.execute("strict", audit_sink=events.append, value="wrong")
+    assert calls == []
+    assert events[-1].event_type == "tool.schema_rejected"
+
+
+def test_output_schema_failure_is_audited():
+    events = []
+    registry = ToolRegistry()
+    registry.register(
+        ToolSpec(
+            "strict-output",
+            "strict output",
+            lambda: "not-an-integer",
+            output_schema={"type": "integer"},
+        )
+    )
+    with pytest.raises(ToolSchemaError, match="output schema"):
+        registry.execute("strict-output", audit_sink=events.append)
+    assert events[-1].status == "schema_failed"

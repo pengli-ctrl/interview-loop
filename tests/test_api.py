@@ -28,7 +28,7 @@ def test_run_lifecycle_and_event_append():
     created = client.post(
         "/v1/agent-runs",
         headers=headers,
-        json={"metadata": {"mode": "technical"}},
+        json={"metadata": {"mode": "technical"}, "consent_granted": True},
     )
     assert created.status_code == 201
     run_id = created.json()["run_id"]
@@ -60,7 +60,7 @@ def test_tenant_isolation():
     created = client.post(
         "/v1/agent-runs",
         headers={"X-Tenant-Id": "tenant-a"},
-        json={"metadata": {}},
+        json={"metadata": {}, "consent_granted": True},
     )
     run_id = created.json()["run_id"]
     response = client.get(
@@ -79,7 +79,7 @@ def test_api_key_authentication():
 
 def test_complete_run_and_stream_events():
     headers = {"X-Tenant-Id": "tenant-stream"}
-    created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}})
+    created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}, "consent_granted": True})
     run_id = created.json()["run_id"]
     client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
     client.post(
@@ -102,7 +102,7 @@ def test_complete_run_and_stream_events():
 
 def test_tool_execution_records_audit_and_reuses_idempotency_key():
     headers = {"X-Tenant-Id": "tenant-tools", "X-User-Id": "user-tools"}
-    created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}})
+    created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}, "consent_granted": True})
     run_id = created.json()["run_id"]
     client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
     payload = {
@@ -153,7 +153,7 @@ def test_tool_execution_records_audit_and_reuses_idempotency_key():
 
 def test_tool_permission_is_enforced_before_execution():
     headers = {"X-Tenant-Id": "tenant-tool-denied"}
-    created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}})
+    created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}, "consent_granted": True})
     run_id = created.json()["run_id"]
     client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
 
@@ -190,7 +190,7 @@ def test_tool_timeout_returns_gateway_timeout_and_is_audited():
     created = timeout_client.post(
         "/v1/agent-runs",
         headers=headers,
-        json={"metadata": {}},
+        json={"metadata": {}, "consent_granted": True},
     )
     run_id = created.json()["run_id"]
     timeout_client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
@@ -208,3 +208,98 @@ def test_tool_timeout_returns_gateway_timeout_and_is_audited():
     ).json()
     failed = [event for event in run["events"] if event["event_type"] == "tool.failed"]
     assert failed[-1]["payload"]["status"] == "timeout"
+
+
+def test_create_run_requires_explicit_consent():
+    response = client.post(
+        "/v1/agent-runs",
+        headers={"X-Tenant-Id": "tenant-consent"},
+        json={"metadata": {}},
+    )
+    assert response.status_code == 422
+    assert "consent" in response.json()["detail"].lower()
+
+
+def test_run_export_and_delete_are_tenant_scoped():
+    headers = {"X-Tenant-Id": "tenant-export"}
+    created = client.post(
+        "/v1/agent-runs",
+        headers=headers,
+        json={"metadata": {}, "consent_granted": True},
+    )
+    run_id = created.json()["run_id"]
+    client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
+
+    exported = client.get(f"/v1/agent-runs/{run_id}/export", headers=headers)
+    assert exported.status_code == 200
+    assert exported.json()["run_id"] == run_id
+    assert exported.json()["trace_id"]
+    assert exported.json()["retention_policy"] == "standard"
+    assert exported.json()["consent_granted"] is True
+    assert "attachment" in exported.headers["content-disposition"]
+
+    foreign = client.get(
+        f"/v1/agent-runs/{run_id}/export",
+        headers={"X-Tenant-Id": "tenant-other"},
+    )
+    assert foreign.status_code == 404
+
+    deleted = client.delete(f"/v1/agent-runs/{run_id}", headers=headers)
+    assert deleted.status_code == 204
+    assert client.get(f"/v1/agent-runs/{run_id}", headers=headers).status_code == 404
+
+
+def test_tool_schema_rejection_is_audited():
+    headers = {"X-Tenant-Id": "tenant-schema"}
+    created = client.post(
+        "/v1/agent-runs",
+        headers=headers,
+        json={"metadata": {}, "consent_granted": True},
+    )
+    run_id = created.json()["run_id"]
+    client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
+
+    response = client.post(
+        f"/v1/agent-runs/{run_id}/tools/question.similarity",
+        headers=headers,
+        json={"arguments": {"new_question": "only one field"}},
+    )
+
+    assert response.status_code == 422
+    run = client.get(f"/v1/agent-runs/{run_id}", headers=headers).json()
+    assert run["events"][-1]["event_type"] == "tool.schema_rejected"
+
+
+def test_metrics_endpoint_summarizes_tenant_runs():
+    headers = {"X-Tenant-Id": "tenant-metrics"}
+    created = client.post(
+        "/v1/agent-runs",
+        headers=headers,
+        json={"metadata": {}, "consent_granted": True},
+    )
+    run_id = created.json()["run_id"]
+    client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
+    client.post(
+        f"/v1/agent-runs/{run_id}/events",
+        headers=headers,
+        json={
+            "event_type": "model.call",
+            "node": "model.review",
+            "payload": {
+                "latency_ms": 120,
+                "estimated_input_tokens": 20,
+                "estimated_output_tokens": 10,
+                "estimated_cost": 0.01,
+                "attempts": 1,
+            },
+        },
+    )
+    client.post(f"/v1/agent-runs/{run_id}/complete", headers=headers)
+
+    response = client.get("/v1/metrics", headers=headers)
+    assert response.status_code == 200
+    report = response.json()
+    assert report["run_count"] == 1
+    assert report["completed_runs"] == 1
+    assert report["model_call_count"] == 1
+    assert report["latency_p50_ms"] == 120

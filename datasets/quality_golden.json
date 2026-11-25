@@ -1,0 +1,86 @@
+{
+  "name": "interview_quality_golden_v1",
+  "dimensions": [
+    {
+      "name": "architecture_depth",
+      "weight": 0.3
+    },
+    {
+      "name": "implementation_detail",
+      "weight": 0.25
+    },
+    {
+      "name": "tradeoff_reasoning",
+      "weight": 0.25
+    },
+    {
+      "name": "communication",
+      "weight": 0.2
+    }
+  ],
+  "thresholds": {
+    "weighted_mae": 0.75,
+    "max_case_mae": 1.0
+  },
+  "human_review_metrics": {
+    "follow_up_relevance": 0.85,
+    "report_actionability": 0.8
+  },
+  "cases": [
+    {
+      "id": "q1",
+      "question": "How would you design a multi-tenant tool platform?",
+      "summary": "Strong tenant isolation and audit design.",
+      "human_scores": {
+        "architecture_depth": 8,
+        "implementation_detail": 7,
+        "tradeoff_reasoning": 8,
+        "communication": 7
+      },
+      "model_scores": {
+        "architecture_depth": 7,
+        "implementation_detail": 7,
+        "tradeoff_reasoning": 7,
+        "communication": 8
+      }
+    },
+    {
+      "id": "q2",
+      "question": "Explain RAG retrieval degradation.",
+      "summary": "Correct fallback but limited evaluation detail.",
+      "human_scores": {
+        "architecture_depth": 6,
+        "implementation_detail": 8,
+        "tradeoff_reasoning": 7,
+        "communication": 7
+      },
+      "model_scores": {
+        "architecture_depth": 7,
+        "implementation_detail": 7,
+        "tradeoff_reasoning": 7,
+        "communication": 7
+      }
+    },
+    {
+      "id": "q3",
+      "question": "How do you make agent tool calls reliable?",
+      "summary": "Covers timeout, idempotency and retry safety.",
+      "human_scores": {
+        "architecture_depth": 9,
+        "implementation_detail": 8,
+        "tradeoff_reasoning": 8,
+        "communication": 9
+      },
+      "model_scores": {
+        "architecture_depth": 8,
+        "implementation_detail": 8,
+        "tradeoff_reasoning": 8,
+        "communication": 8
+      }
+    }
+  ],
+  "human_review_minimums": {
+    "follow_up_relevance": 0.8,
+    "report_actionability": 0.75
+  }
+}

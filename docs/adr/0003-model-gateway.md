@@ -40,3 +40,8 @@ Negative:
 ## Follow-up
 
 Add provider fallback, budget limits, circuit breakers, and per-tenant model quotas.
+
+
+## Implementation Status
+
+Provider fallback, retries, per-run budgets, provider circuit breakers, and process-local tenant quotas are implemented. Circuit state and quota windows are intentionally process-local until a shared Redis/PostgreSQL quota service is justified.

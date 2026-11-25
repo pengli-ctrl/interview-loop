@@ -28,8 +28,10 @@ InterviewLoop 将一次技术面试拆成轮次、阶段、主问题、追问和
 - ASR/TTS 接入火山引擎新版豆包语音。
 - 大模型接入 DeepSeek OpenAI 兼容接口。
 - 重复问题检测和阶段约束。
-- 模型网关支持任务级路由、失败重试、Provider 回退和单轮 Token/成本预算。
-- 工具运行层支持超时、幂等重试、参数冲突检测和 AgentRun 审计事件。
+- 模型网关支持任务级路由、失败重试、Provider 回退、熔断、单轮预算和租户额度。
+- 工具运行层支持超时、幂等重试、参数冲突检测、Schema 校验和 AgentRun 审计。
+- 支持显式数据同意、PII 脱敏、保留策略、租户存储路径、导出和删除。
+- 支持 Trace Replay、质量校准基线、P50/P95 延迟和失败/重试指标。
 - 面试结束生成复盘、薄弱标签和完整 Markdown 记录。
 - 支持历史记录、弱项统计、跳过阶段和开启新一轮。
 
@@ -136,6 +138,11 @@ http://localhost:8501
 | `llm_max_cost_per_run` | 单轮面试模型成本预算（人民币估算） |
 | `llm_input_cost_per_million` | 输入 Token 单价，元 / 百万 Token |
 | `llm_output_cost_per_million` | 输出 Token 单价，元 / 百万 Token |
+| `llm_circuit_failure_threshold` | Provider 熔断失败阈值 |
+| `llm_circuit_cooldown_seconds` | Provider 熔断冷却时间 |
+| `llm_tenant_max_tokens` | 租户滚动 Token 额度 |
+| `llm_tenant_max_cost` | 租户滚动成本额度（人民币估算） |
+| `llm_tenant_quota_window_seconds` | 租户额度窗口秒数 |
 
 ## 本地数据
 
@@ -167,7 +174,7 @@ http://localhost:8501
 
 - 当前是单机 MVP，没有账号和多租户数据隔离。
 - 使用本地文件存储，不适合直接公开 SaaS 部署。
-- 评估质量依赖大模型，尚缺少标准化评分基准。
+- 质量基线已经建立，但样本仍为小规模合成集，需要真实面试官标注扩容。
 - 没有支付、订阅、配额和滥用防护。
 - 公开在线 Demo 会产生第三方 API 成本，因此仓库优先提供本地运行和录屏演示。
 
@@ -179,7 +186,9 @@ http://localhost:8501
 - [x] 增加 Mock Demo 模式。
 - [x] 增加演示截图和流程 GIF。
 - [x] 增加模型网关重试、Provider 回退和单轮成本预算。
-- [x] 增加工具运行层超时、幂等、权限与审计。
+- [x] 增加工具运行层超时、幂等、权限、Schema 与审计。
+- [x] 增加熔断、租户额度、PII、保留策略、导出和删除。
+- [x] 增加质量基线、Trace Replay 和 Agent 指标汇总。
 - [ ] 建立标准评分 Rubric 和评估基准集。
 - [ ] 增加账号、数据库、对象存储和用户数据隔离。
 - [ ] 增加公测所需的配额、限流、监控和隐私合规能力。
@@ -196,7 +205,7 @@ ruff check .
 pytest -q
 ```
 
-当前测试覆盖状态机、追问判定、问题相似度、复盘标签、Markdown 导出、会话存储、弱项统计、简历编码解析、模型网关路由与预算、工具超时/幂等/审计，以及 Streamlit 文字输入全阶段流转。
+当前测试覆盖状态机、追问判定、问题相似度、复盘标签、Markdown 导出、会话存储、弱项统计、简历编码解析、模型路由/熔断/租户额度、工具超时/幂等/Schema/审计、PII、保留与删除、质量校准、Trace Replay，以及 Streamlit 全阶段流转。
 
 ## Demo 模式
 
@@ -234,6 +243,9 @@ uvicorn interview_loop.api.main:app --reload
 - `POST /v1/agent-runs/{run_id}/complete`
 - `POST /v1/agent-runs/{run_id}/fail`
 - `POST /v1/agent-runs/{run_id}/tools/{tool_name}`
+- `GET /v1/agent-runs/{run_id}/export`
+- `DELETE /v1/agent-runs/{run_id}`
+- `GET /v1/metrics`
 - `GET /v1/agent-runs/{run_id}/events/stream`（SSE）
 
 OpenAPI 文档：`http://localhost:8000/docs`。
@@ -280,6 +292,12 @@ X-Permissions: record:write,audio:read
 未设置 API Key 时，默认允许本地开发访问。不同租户无法查询或修改对方的 AgentRun。
 
 当前默认使用 SQLite 持久化 AgentRun 与事件，适合本地开发和 CI；公测阶段应替换为 PostgreSQL，并补充租户权限、迁移和并发控制。
+
+按保留策略清理过期 Run：
+
+```bash
+python scripts/purge_expired_runs.py
+```
 
 ## Evaluation
 

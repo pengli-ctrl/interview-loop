@@ -28,6 +28,13 @@ def build_session_data(
     started_at: str,
     completed_at: str,
     duration_seconds: int | None,
+    tenant_id: str = "local",
+    user_id: str = "local",
+    trace_id: str | None = None,
+    consent_granted: bool = False,
+    consent_at: str | None = None,
+    retention_policy: str = "standard",
+    retention_expires_at: str | None = None,
 ) -> dict:
     return {
         "time": started_at.replace("_", " "),
@@ -41,6 +48,13 @@ def build_session_data(
         "messages": messages,
         "feedback": feedback,
         "tags": tags,
+        "tenant_id": tenant_id,
+        "user_id": user_id,
+        "trace_id": trace_id,
+        "consent_granted": consent_granted,
+        "consent_at": consent_at,
+        "retention_policy": retention_policy,
+        "retention_expires_at": retention_expires_at,
     }
 
 

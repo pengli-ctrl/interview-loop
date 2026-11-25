@@ -25,3 +25,9 @@ jobs:
 
       - name: Test
         run: pytest -q
+
+      - name: Evaluate retrieval regression
+        run: python scripts/evaluate_rag.py
+
+      - name: Evaluate quality regression
+        run: python scripts/evaluate_quality.py

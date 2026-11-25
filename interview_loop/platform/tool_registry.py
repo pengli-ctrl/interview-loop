@@ -1,8 +1,14 @@
+import base64
 import hashlib
 import threading
 from dataclasses import dataclass, replace
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable
+
+from jsonschema import Draft202012Validator
+
+from interview_loop.platform.privacy import redact_pii
 
 
 class ToolNotFoundError(LookupError):
@@ -25,6 +31,10 @@ class ToolIdempotencyConflictError(RuntimeError):
     pass
 
 
+class ToolSchemaError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
@@ -33,6 +43,8 @@ class ToolSpec:
     version: str = "v1"
     timeout_seconds: float = 30.0
     required_permission: str | None = None
+    input_schema: dict | None = None
+    output_schema: dict | None = None
     max_retries: int = 0
     idempotent: bool = False
     idempotency_ttl_seconds: int = 300
@@ -75,7 +87,7 @@ class ToolAuditEvent:
             "duration_ms": self.duration_ms,
             "input_digest": self.input_digest,
             "idempotency_key": self.idempotency_key,
-            "error": self.error,
+            "error": redact_pii(self.error) if self.error else None,
         }
 
 
@@ -189,6 +201,28 @@ class ToolRegistry:
             raise ToolPermissionError(
                 f"Missing permission: {spec.required_permission}"
             )
+
+        try:
+            self._validate_schema(spec.input_schema, kwargs, "input")
+        except ToolSchemaError as exc:
+            self._audit(
+                audit_sink,
+                ToolAuditEvent(
+                    tool_name=name,
+                    event_type="tool.schema_rejected",
+                    status="schema_rejected",
+                    tool_version=spec.version,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    run_id=run_id,
+                    attempts=0,
+                    duration_ms=0,
+                    input_digest=input_digest,
+                    idempotency_key=idempotency_key,
+                    error=str(exc),
+                ),
+            )
+            raise
 
         self._audit(
             audit_sink,
@@ -366,6 +400,25 @@ class ToolRegistry:
                     f"{spec.name} failed after {attempt} attempt(s): {exc}"
                 ) from exc
 
+            try:
+                self._validate_schema(spec.output_schema, output, "output")
+            except ToolSchemaError as exc:
+                duration_ms = int((perf_counter() - started) * 1000)
+                self._audit_failure(
+                    audit_sink,
+                    spec,
+                    "schema_failed",
+                    tenant_id,
+                    user_id,
+                    run_id,
+                    input_digest,
+                    idempotency_key,
+                    attempt,
+                    duration_ms,
+                    exc,
+                )
+                raise
+
             duration_ms = int((perf_counter() - started) * 1000)
             self._audit(
                 audit_sink,
@@ -394,6 +447,46 @@ class ToolRegistry:
         raise ToolExecutionError(
             f"{spec.name} failed: {last_error or 'unknown error'}"
         )
+
+    @staticmethod
+    def _validate_schema(
+        schema: dict | None,
+        value: Any,
+        direction: str,
+    ) -> None:
+        if schema is None:
+            return
+        normalized = ToolRegistry._schema_value(value)
+        errors = sorted(
+            Draft202012Validator(schema).iter_errors(normalized),
+            key=lambda error: list(error.path),
+        )
+        if not errors:
+            return
+        error = errors[0]
+        path = ".".join(str(item) for item in error.path) or "$"
+        raise ToolSchemaError(
+            f"{direction} schema validation failed at {path}: {error.message}"
+        )
+
+    @staticmethod
+    def _schema_value(value: Any) -> Any:
+        if isinstance(value, bytes):
+            return {
+                "type": "bytes",
+                "encoding": "base64",
+                "data": base64.b64encode(value).decode("ascii"),
+            }
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, dict):
+            return {
+                key: ToolRegistry._schema_value(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [ToolRegistry._schema_value(item) for item in value]
+        return value
 
     def _lock_for(self, key: tuple[str, str, str]) -> threading.Lock:
         with self._cache_lock:
@@ -465,7 +558,7 @@ class ToolRegistry:
                 duration_ms=0,
                 input_digest=input_digest,
                 idempotency_key=idempotency_key,
-                error=str(error)[:500],
+                error=redact_pii(str(error))[:500],
             ),
         )
 
@@ -497,7 +590,7 @@ class ToolRegistry:
                 duration_ms=duration_ms,
                 input_digest=input_digest,
                 idempotency_key=idempotency_key,
-                error=str(error)[:500],
+                error=redact_pii(str(error))[:500],
             ),
         )
 

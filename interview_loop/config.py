@@ -403,3 +403,6 @@ MODE_CONFIG = {
 MODE_LIST = list(MODE_CONFIG.keys())
 STYLE_LIST = ["温和", "压力面"]
 
+
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+EMBEDDING_CACHE_NAME = "models--sentence-transformers--all-MiniLM-L6-v2"

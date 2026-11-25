@@ -1,7 +1,5 @@
 import hashlib
-import io
 import json
-import os
 import time
 from pathlib import Path
 from uuid import uuid4
@@ -19,9 +17,10 @@ from interview_loop.core.review import build_review_prompt, build_tag_prompt, pa
 from interview_loop.services.asr import audio2text
 from interview_loop.services.llm import llm_call
 from interview_loop.services.tts import text2audio
+from interview_loop.rag.resume import extract_resume_text
+from interview_loop.rag.retriever import build_rag, query_resume
 from interview_loop.config import (
     GLOBAL_STATS_PATH,
-    MAX_RESUME_BYTES,
     MODE_CONFIG,
     MODE_LIST,
     RECORD_DIR,
@@ -276,126 +275,6 @@ def reset_interview_state() -> None:
     st.session_state.last_record_path = None
     st.session_state.last_record_markdown = None
 # ===================== 简历解析与 RAG =====================
-def _decode_resume_text(data: bytes) -> str:
-    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
-        try:
-            return data.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    raise ValueError("无法识别文本编码，请将简历另存为 UTF-8 后重试")
-
-
-def extract_resume_text(upload) -> str:
-    data = upload.getvalue()
-    if len(data) > MAX_RESUME_BYTES:
-        raise ValueError("简历文件超过 10 MB，请压缩或删除图片后重试")
-
-    filename = upload.name.lower()
-    if filename.endswith(".pdf"):
-        try:
-            from pypdf import PdfReader
-        except ImportError:
-            try:
-                from PyPDF2 import PdfReader
-            except ImportError as exc:
-                raise RuntimeError("缺少 PDF 解析依赖，请安装 pypdf") from exc
-
-        try:
-            reader = PdfReader(io.BytesIO(data))
-            if reader.is_encrypted:
-                try:
-                    reader.decrypt("")
-                except Exception as exc:
-                    raise ValueError("PDF 已加密，无法读取") from exc
-            pages = [(page.extract_text() or "").strip() for page in reader.pages]
-        except ValueError:
-            raise
-        except Exception as exc:
-            raise ValueError(f"PDF 解析失败：{exc}") from exc
-        return "\n".join(page for page in pages if page)
-
-    return _decode_resume_text(data)
-
-
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-EMBEDDING_CACHE_NAME = "models--sentence-transformers--all-MiniLM-L6-v2"
-
-
-def has_local_embedding_model() -> bool:
-    try:
-        hf_home = Path(os.getenv("HF_HOME", Path.home() / ".cache" / "huggingface"))
-        model_dir = hf_home / "hub" / EMBEDDING_CACHE_NAME
-        snapshots_dir = model_dir / "snapshots"
-        if snapshots_dir.is_dir() and any(
-            (snapshot / "modules.json").is_file()
-            for snapshot in snapshots_dir.iterdir()
-            if snapshot.is_dir()
-        ):
-            return True
-        legacy_dir = Path.home() / ".cache" / "torch" / "sentence_transformers" / (
-            "sentence-transformers_all-MiniLM-L6-v2"
-        )
-        return (legacy_dir / "modules.json").is_file()
-    except OSError:
-        return False
-
-
-@st.cache_resource(show_spinner=False)
-def get_embeddings():
-    from langchain_community.embeddings import SentenceTransformerEmbeddings
-
-    # 只加载本机已有模型，避免上传时因无法访问 HuggingFace 长时间卡住。
-    return SentenceTransformerEmbeddings(
-        model_name=EMBEDDING_MODEL_NAME,
-        model_kwargs={"local_files_only": True},
-    )
-
-
-def build_rag(text: str):
-    try:
-        import jieba
-        from langchain.retrievers import EnsembleRetriever
-        from langchain_community.retrievers import BM25Retriever
-        from langchain_community.vectorstores import FAISS
-        from langchain_text_splitters import RecursiveCharacterTextSplitter
-    except ImportError as exc:
-        raise RuntimeError(f"缺少 RAG 依赖：{exc}") from exc
-
-    splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=100)
-    chunks = [chunk.strip() for chunk in splitter.split_text(text) if chunk.strip()]
-    if not chunks:
-        raise ValueError("简历没有可用的文本内容")
-
-    bm25 = BM25Retriever.from_texts(chunks, preprocess_func=jieba.lcut)
-    bm25.k = 2
-    if not has_local_embedding_model():
-        return bm25, "BM25 本地关键词"
-
-    try:
-        embeddings = get_embeddings()
-        faiss_store = FAISS.from_texts(chunks, embeddings)
-        retriever = EnsembleRetriever(
-            retrievers=[bm25, faiss_store.as_retriever()],
-            weights=[0.5, 0.5],
-        )
-        return retriever, "BM25 + 本地向量"
-    except Exception:
-        # 向量模型未缓存或加载失败时退回纯关键词检索，保证离线也能使用。
-        return bm25, "BM25 本地关键词"
-
-
-def rag_query(query: str) -> str:
-    retriever = st.session_state.get("resume_retriever")
-    if retriever is None:
-        return ""
-    try:
-        docs = retriever.invoke(query or "候选人的简历与项目经历")
-        return "\n".join(doc.page_content for doc in docs)
-    except Exception:
-        return ""
-
-
-# ===================== 模型与语音服务 =====================
 def set_question_audio(question: str) -> None:
     try:
         st.session_state.question_audio = text2audio(question)
@@ -520,7 +399,10 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
     if "结束面试" in ans_text:
         return generate_review(mode_cfg)
 
-    ctx = rag_query(f"{st.session_state.current_question}\n{ans_text}")
+    ctx = query_resume(
+        st.session_state.resume_retriever,
+        f"{st.session_state.current_question}\n{ans_text}",
+    )
     if st.session_state.interview_type == "闯关全真面试":
         current_stage_idx = st.session_state.current_stage_idx
         current_stage = mode_cfg["stage_list"][current_stage_idx]
@@ -698,7 +580,7 @@ if st.session_state.interview_type == "闯关全真面试":
                             next_question = get_stage_question(
                                 st.session_state.mode,
                                 next_stage_idx,
-                                rag_query(""),
+                                query_resume(st.session_state.resume_retriever, ""),
                                 st.session_state.global_weak_stats[st.session_state.mode],
                                 0,
                                 0,
@@ -772,7 +654,7 @@ with col_main:
             else:
                 try:
                     with st.spinner("正在生成第一道题..."):
-                        ctx = rag_query("")
+                        ctx = query_resume(st.session_state.resume_retriever, "")
                         if st.session_state.interview_type == "闯关全真面试":
                             question = get_stage_question(
                                 st.session_state.mode,

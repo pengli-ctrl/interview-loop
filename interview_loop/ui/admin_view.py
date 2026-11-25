@@ -8,6 +8,9 @@ import pandas as pd
 import streamlit as st
 
 from interview_loop.admin.control_plane import (
+    format_quality_thresholds,
+    format_quota_snapshot,
+    format_rag_thresholds,
     model_profile_rows,
     quality_metrics,
     recent_runs,
@@ -69,7 +72,10 @@ def render_admin_view(
             f"租户额度：{quota.max_tokens:,} Token / {quota.max_cost:.2f}  "
             f"窗口 {quota.window_seconds:g} 秒"
         )
-        st.caption(f"当前租户用量快照：{tenant_quota_store.snapshot(tenant_id)}")
+        st.caption(
+            "当前租户用量："
+            + format_quota_snapshot(tenant_quota_store.snapshot(tenant_id))
+        )
 
     with tabs[2]:
         st.subheader("工具目录与权限")
@@ -120,7 +126,8 @@ def render_admin_view(
             ]
         )
         st.caption(
-            f"黄金用例：{rag_metrics['case_count']}  阈值：{rag_metrics['thresholds']}"
+            f"黄金用例：{rag_metrics['case_count']}  "
+            + format_rag_thresholds(rag_metrics["thresholds"])
         )
         st.subheader("模型输出质量校准")
         render_metric_grid(
@@ -130,4 +137,4 @@ def render_admin_view(
                 ("人工复核", "通过" if quality["human_review_passed"] else "失败"),
             ]
         )
-        st.caption(f"质量阈值：{quality['thresholds']}")
+        st.caption("质量阈值：" + format_quality_thresholds(quality["thresholds"]))

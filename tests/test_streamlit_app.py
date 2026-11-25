@@ -7,6 +7,7 @@ from streamlit.testing.v1 import AppTest
 import interview_loop.config as config
 from interview_loop.evaluation.interview_report import InterviewReport
 from interview_loop.evaluation.replay import replay_agent_run
+from interview_loop.platform.run_repository import SQLiteAgentRunRepository
 from interview_loop.storage.draft_store import save_interview_draft
 
 
@@ -138,6 +139,8 @@ def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
     assert structured_report.overall_score > 0
     assert structured_report.source == "structure-heuristic-v1"
     assert any("表达结构参考分" in item.value for item in at.markdown)
+    assert any("优先行动" in item.value for item in at.markdown)
+    assert any("演示流程" in item.value for item in at.markdown)
     assert len(structured_report.dimensions) == 4
     finished_events = at.session_state["agent_run"].events
     finished_types = [event.event_type for event in finished_events]
@@ -147,6 +150,11 @@ def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
     assert list((tmp_path / "sessions").glob("*.json"))
     assert list((tmp_path / "records").glob("*.md"))
     assert list((tmp_path / "sessions" / "drafts").glob("*.json")) == []
+    persisted_run = SQLiteAgentRunRepository(tmp_path / "interview_loop.db").get(
+        at.session_state["agent_run"].run_id
+    )
+    assert persisted_run.run_id == at.session_state["agent_run"].run_id
+    assert persisted_run.events
     assert (tmp_path / "sessions" / "weak_stats.json").exists()
     assert not (tmp_path / "weak_stats.json").exists()
 
@@ -160,6 +168,12 @@ def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
     navigation.set_value("成长记录").run()
     assert not at.exception
     assert at.session_state["current_view"] == "growth"
+
+    navigation = at.get_by_key(f"main_navigation_{at.session_state['nav_version']}")
+    navigation.set_value("开始面试").run()
+    assert not at.exception
+    assert at.session_state["current_view"] == "setup"
+    assert at.session_state["setup_step"] == 1
 
 
 def test_legacy_session_without_structured_report_opens(monkeypatch, tmp_path):
@@ -250,6 +264,13 @@ def test_unfinished_interview_draft_can_be_restored(monkeypatch, tmp_path):
     assert len(at.session_state["messages"]) == 2
     assert at.session_state["current_stage_idx"] == 1
 
+    refreshed = AppTest.from_file(str(app_path), default_timeout=30).run()
+    assert not refreshed.exception
+    restored = refreshed.session_state["pending_draft"]
+    assert restored["session_id"] == "session_restore"
+    assert len(restored["messages"]) == 2
+    assert restored["current_question"] == "当前问题"
+
 
 def test_new_interview_reset_clears_stale_resume_state(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "DEMO_MODE", True)
@@ -330,3 +351,23 @@ def test_growth_single_record_shows_next_step_instead_of_empty_chart(monkeypatch
     assert any("无法恢复" in item.value for item in at.warning)
     at.button(key="confirm_delete_one_training").click().run()
     assert not (save_dir / "one_training.json").exists()
+
+
+def test_legacy_weak_stats_migrates_to_tenant_storage(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DEMO_MODE", True)
+    save_dir = tmp_path / "sessions"
+    save_dir.mkdir()
+    monkeypatch.setattr(config, "SAVE_DIR", save_dir)
+    monkeypatch.setattr(config, "RECORD_DIR", tmp_path / "records")
+    legacy_path = tmp_path / "weak_stats_mode.json"
+    legacy_path.write_text(
+        json.dumps({"技术一面": {"RAG": 3}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "GLOBAL_STATS_PATH", legacy_path)
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    at = AppTest.from_file(str(app_path), default_timeout=30).run()
+    assert not at.exception
+    migrated = save_dir / "weak_stats.json"
+    assert migrated.exists()
+    assert json.loads(migrated.read_text(encoding="utf-8"))["技术一面"]["RAG"] == 3

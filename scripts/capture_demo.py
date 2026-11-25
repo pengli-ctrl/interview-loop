@@ -276,12 +276,15 @@ def begin_session(
     click_button(page, "下一步：补充简历")
     wait_for_app(page, "下一步：确认并开始")
     jd = (ASSET_ROOT / "demo_jd.txt").read_text(encoding="utf-8").strip()
-    page.locator("textarea").first.fill(jd)
+    jd_input = page.locator("textarea").first
+    jd_input.fill(jd)
+    jd_input.evaluate("(element) => { element.scrollTop = 0; element.blur(); }")
     if upload_resume:
         page.locator('input[type="file"]').set_input_files(str(ASSET_ROOT / "demo_resume.txt"))
         page.get_by_text(re.compile(r"已加载：\s*demo_resume\.txt")).wait_for(timeout=60000)
         wait_for_streamlit_idle(page, timeout=60000)
     if capture_setup:
+        page.locator("textarea").first.evaluate("(element) => { element.scrollTop = 0; }")
         capture(page, "setup-context", frames)
 
     click_button(page, "下一步：确认并开始")
@@ -325,7 +328,7 @@ def run_session(
     click_button(page, "确认结束")
     wait_for_app(page, "复盘报告", timeout=40000)
     page.get_by_text("表达结构参考分", exact=True).first.wait_for(timeout=30000)
-    page.get_by_text("下一步行动计划", exact=True).wait_for(timeout=30000)
+    page.get_by_text(re.compile(r"优先行动")).first.wait_for(timeout=30000)
 
 
 def capture_candidate_flow(page: Page, frames: list[Path]) -> None:
@@ -366,6 +369,10 @@ def capture_admin(page: Page, frames: list[Path]) -> None:
     page.locator('[data-testid="stDataFrame"]').first.wait_for(timeout=30000)
     if page.get_by_text("训练入口", exact=True).count():
         raise AssertionError("admin page still contains dashboard content")
+    page.get_by_role("tab", name="AgentRun / Trace").click()
+    page.get_by_text("最近 AgentRun", exact=True).first.wait_for(timeout=30000)
+    if page.get_by_text("暂无 AgentRun", exact=False).count():
+        raise AssertionError("admin page cannot see UI-created AgentRun records")
     capture(page, "admin", frames)
 
     page.get_by_role("tab", name="评估指标").click()

@@ -22,6 +22,7 @@ def render_report_view(
     structured_report: InterviewReport | None,
     job_match: JobMatchReport | None,
     messages_count: int,
+    demo_mode: bool,
     last_record_path: str | None,
     last_record_markdown: str | None,
     mode: str,
@@ -48,6 +49,8 @@ def render_report_view(
         ]
     )
 
+    duration_text = "演示流程" if demo_mode else format_duration(duration_seconds)
+
     if isinstance(structured_report, InterviewReport):
         score_col, chart_col = st.columns([1, 2])
         with score_col:
@@ -73,9 +76,15 @@ def render_report_view(
             [
                 ("回答轮次", str(messages_count // 2)),
                 ("薄弱标签", str(len(tags))),
-                ("用时", format_duration(duration_seconds)),
+                ("用时", duration_text),
             ]
         )
+        if structured_report.action_plan:
+            primary_action = structured_report.action_plan[0]
+            with st.container(border=True):
+                st.markdown(f"### 优先行动：{primary_action.action}")
+                for action in structured_report.action_plan[1:]:
+                    st.write(f"- **{action.priority}** {action.action}")
         with st.container(border=True):
             st.write(structured_report.summary)
             strength_col, risk_col = st.columns(2)
@@ -87,10 +96,6 @@ def render_report_view(
                 st.markdown("#### 风险与不足")
                 for item in structured_report.risks:
                     st.write(f"- {item}")
-        with st.container(border=True):
-            st.markdown("### 下一步行动计划")
-            for action in structured_report.action_plan:
-                st.write(f"- **{action.priority}** {action.action}")
         with st.expander("查看回答证据"):
             for item in structured_report.evidence:
                 st.markdown(f"**{item.dimension_label}**  {item.score}/10")
@@ -102,7 +107,7 @@ def render_report_view(
             [
                 ("回答轮次", str(messages_count // 2)),
                 ("薄弱标签", str(len(tags))),
-                ("用时", format_duration(duration_seconds)),
+                ("用时", duration_text),
             ]
         )
 

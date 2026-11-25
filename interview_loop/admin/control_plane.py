@@ -91,3 +91,28 @@ def quality_metrics(path: str | Path) -> dict:
         "passed": report.passed,
         "thresholds": report.thresholds,
     }
+
+
+def format_rag_thresholds(thresholds: dict) -> str:
+    return (
+        f"Precision ≥ {float(thresholds.get('precision', 0)):.2f} · "
+        f"Recall ≥ {float(thresholds.get('recall', 0)):.2f} · "
+        f"MRR ≥ {float(thresholds.get('mrr', 0)):.2f} · "
+        f"Hit Rate ≥ {float(thresholds.get('hit_rate', 0)):.2f}"
+    )
+
+
+def format_quality_thresholds(thresholds: dict) -> str:
+    return (
+        f"加权 MAE ≤ {float(thresholds.get('weighted_mae', 0)):.2f} · "
+        f"单条最大 MAE ≤ {float(thresholds.get('max_case_mae', 0)):.2f}"
+    )
+
+
+def format_quota_snapshot(snapshot: dict) -> str:
+    return (
+        f"{int(snapshot.get('used_tokens', 0)):,} / "
+        f"{int(snapshot.get('max_tokens', 0)):,} Token · "
+        f"¥{float(snapshot.get('used_cost', 0)):.4f} / "
+        f"¥{float(snapshot.get('max_cost', 0)):.2f}"
+    )

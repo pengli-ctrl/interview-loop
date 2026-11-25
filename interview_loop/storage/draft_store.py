@@ -1,8 +1,17 @@
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from interview_loop.storage.common import atomic_write_text
+
+DRAFT_MAX_AGE_DAYS = 7
+RETENTION_DAYS = {"ephemeral": 1, "standard": 30, "extended": 365}
+
+
+def draft_ttl_days(retention_policy: str = "standard") -> int:
+    policy_days = RETENTION_DAYS.get(str(retention_policy), 30)
+    return max(1, min(DRAFT_MAX_AGE_DAYS, policy_days))
 
 
 def _draft_dir(save_dir: Path) -> Path:
@@ -22,8 +31,13 @@ def save_interview_draft(save_dir: Path, data: dict[str, Any]) -> Path:
     session_id = str(data.get("session_id", "")).strip()
     if not session_id:
         raise ValueError("draft requires session_id")
+    payload = dict(data)
+    ttl_days = draft_ttl_days(str(payload.get("retention_policy", "standard")))
+    payload["draft_expires_at"] = (
+        datetime.now(timezone.utc) + timedelta(days=ttl_days)
+    ).isoformat()
     path = draft_path(save_dir, session_id)
-    atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
+    atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
     return path
 
 
@@ -36,7 +50,32 @@ def load_interview_draft(save_dir: Path, session_id: str) -> dict[str, Any] | No
     return data if isinstance(data, dict) else None
 
 
-def latest_interview_draft(save_dir: Path) -> dict[str, Any] | None:
+def cleanup_expired_drafts(save_dir: Path) -> int:
+    directory = _draft_dir(save_dir)
+    now = datetime.now(timezone.utc)
+    removed = 0
+    for path in directory.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            expires_at = str(data.get("draft_expires_at") or "")
+            expired = bool(expires_at) and datetime.fromisoformat(expires_at) <= now
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            expired = True
+        if expired:
+            try:
+                path.unlink()
+                removed += 1
+            except FileNotFoundError:
+                continue
+    return removed
+
+
+def latest_interview_draft(
+    save_dir: Path,
+    *,
+    require_answers: bool = True,
+) -> dict[str, Any] | None:
+    cleanup_expired_drafts(save_dir)
     directory = _draft_dir(save_dir)
     try:
         files = sorted(
@@ -51,8 +90,11 @@ def latest_interview_draft(save_dir: Path) -> dict[str, Any] | None:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if isinstance(data, dict) and data.get("session_id"):
-            return data
+        if not isinstance(data, dict) or not data.get("session_id"):
+            continue
+        if require_answers and len(data.get("messages") or []) < 2:
+            continue
+        return data
     return None
 
 

@@ -69,6 +69,9 @@ def test_job_description_outside_catalog_is_marked_unscored(catalog):
     assert report.match_level == "unscored"
     assert report.jd_skills == ()
     assert any("技能目录未覆盖" in risk for risk in report.risk_areas)
+    context = build_job_context(report)
+    assert "未评分" in context
+    assert "0/100" not in context
 
 
 def test_report_roundtrip_and_context(catalog):

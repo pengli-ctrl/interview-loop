@@ -17,6 +17,7 @@ from interview_loop.config import (
     ADMIN_MODE,
     BASE_DIR,
     DEMO_MODE,
+    GLOBAL_STATS_PATH,
     MODE_CONFIG,
     MODE_LIST,
     RECORD_DIR,
@@ -66,6 +67,7 @@ from interview_loop.platform.model_gateway import (
     default_tenant_quota_store,
     default_usage_budget,
 )
+from interview_loop.platform.run_repository import SQLiteAgentRunRepository
 from interview_loop.rag.resume import extract_resume_text
 from interview_loop.rag.retriever import build_rag, query_resume
 from interview_loop.services.asr import audio2text
@@ -90,8 +92,8 @@ from interview_loop.ui.components import (
     RETENTION_OPTIONS,
     inject_ui_css,
     render_chips,
-    render_metric_grid,
 )
+from interview_loop.ui.dashboard_view import render_dashboard_view
 from interview_loop.ui.report_view import render_report_view
 
 SKILL_CATALOG = load_default_skill_catalog()
@@ -198,6 +200,12 @@ def tenant_record_dir() -> Path:
     path = tenant_scoped_dir(RECORD_DIR, current_tenant_id())
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def agent_run_repository_path() -> Path:
+    return Path(
+        os.getenv("INTERVIEWLOOP_DB_PATH", SAVE_DIR.parent / "interview_loop.db")
+    )
 
 
 def list_session_files() -> list[Path]:
@@ -321,12 +329,22 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
         )
         if agent_run.status is RunStatus.RUNNING:
             agent_run.complete("interview.review")
+        try:
+            SQLiteAgentRunRepository(agent_run_repository_path()).save(agent_run)
+        except Exception as exc:
+            data["agent_run_persisted"] = False
+            data["agent_run_persist_error"] = str(exc)
+            st.warning(f"AgentRun 写入控制面失败：{exc}")
+        else:
+            data["agent_run_persisted"] = True
         data["agent_run"] = agent_run.to_dict()
+    data["demo_mode"] = DEMO_MODE
     budget = st.session_state.get("model_budget")
     if budget is not None:
         data["model_usage"] = budget.to_dict()
     json_path = save_session_json(tenant_save_dir(), data)
     st.session_state.report_duration_seconds = duration_seconds
+    st.session_state.report_duration_is_demo = DEMO_MODE
     st.session_state.last_record_path = str(markdown_path)
     st.session_state.last_record_markdown = markdown
     st.session_state.session_list = list_session_files()
@@ -334,6 +352,18 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
 
 
 # 初始化 session state
+def migrate_legacy_weak_stats() -> None:
+    tenant_path = tenant_stats_path()
+    if tenant_path.exists() or current_tenant_id() != "local":
+        return
+    if not GLOBAL_STATS_PATH.exists():
+        return
+    legacy_stats, error = load_stats(GLOBAL_STATS_PATH, MODE_LIST)
+    if not error:
+        save_stats(tenant_path, legacy_stats)
+
+
+migrate_legacy_weak_stats()
 _initial_weak_stats, _weak_stats_error = load_stats(tenant_stats_path(), MODE_LIST)
 if _weak_stats_error:
     st.warning(f"薄弱统计文件损坏，已使用空统计：{_weak_stats_error}")
@@ -383,6 +413,7 @@ defaults = {
     "session_list": list_session_files(),
     "draft_error": None,
     "report_duration_seconds": None,
+    "report_duration_is_demo": False,
     "delete_confirm_id": None,
 }
 for key, value in defaults.items():
@@ -441,6 +472,7 @@ def restore_pending_draft() -> None:
     st.session_state.structured_report = None
     st.session_state.last_tags = []
     st.session_state.report_duration_seconds = None
+    st.session_state.report_duration_is_demo = False
     st.session_state.last_record_path = None
     st.session_state.last_record_markdown = None
     st.session_state.question_audio = None
@@ -448,7 +480,7 @@ def restore_pending_draft() -> None:
     st.session_state.agent_run = None
     st.session_state.model_budget = default_usage_budget()
     st.session_state.pending_draft = None
-    clear_current_draft()
+    save_current_draft()
     st.session_state.current_view = "interview"
     st.session_state.nav_version = int(st.session_state.get("nav_version", 0)) + 1
     st.rerun()
@@ -477,6 +509,7 @@ if st.session_state.get("interview_flow_version") != 4:
     st.session_state.stage_started_at = None
     st.session_state.interview_started_at = None
     st.session_state.report_duration_seconds = None
+    st.session_state.report_duration_is_demo = False
     st.session_state.last_record_path = None
     st.session_state.last_record_markdown = None
     st.session_state.agent_run = None
@@ -520,6 +553,7 @@ def reset_interview_state() -> None:
     st.session_state.timer_alert = False
     st.session_state.interview_started_at = None
     st.session_state.report_duration_seconds = None
+    st.session_state.report_duration_is_demo = False
     st.session_state.last_record_path = None
     st.session_state.last_record_markdown = None
     st.session_state.agent_run = None
@@ -969,6 +1003,8 @@ def render_sidebar() -> None:
             view for view in views if VIEW_LABELS[view] == selected
         )
         if selected_view != current:
+            if selected_view == "setup" and st.session_state.get("feedback"):
+                st.session_state.setup_step = 1
             st.session_state.current_view = selected_view
             st.rerun()
 
@@ -982,34 +1018,6 @@ def render_sidebar() -> None:
 
 
 def render_dashboard() -> None:
-    st.title("InterviewLoop")
-    st.caption("把一次面试练习，变成持续可见的能力成长。")
-
-    pending_draft = st.session_state.get("pending_draft")
-    if isinstance(pending_draft, dict) and st.session_state.get("start_time") is None:
-        with st.container(border=True):
-            st.markdown("## 发现未完成的面试")
-            st.write(
-                f"{pending_draft.get('mode', '未知轮次')} · "
-                f"已完成 {len(pending_draft.get('messages', [])) // 2} 轮回答 · "
-                f"最后更新 {pending_draft.get('updated_at', '未记录')}"
-            )
-            st.caption(f"当前问题：{pending_draft.get('current_question', '未记录')}")
-            recovery_left, recovery_right = st.columns(2)
-            if recovery_left.button(
-                "恢复面试",
-                type="primary",
-                key="restore_interview_draft",
-                width="stretch",
-            ):
-                restore_pending_draft()
-            if recovery_right.button(
-                "放弃草稿",
-                key="discard_interview_draft",
-                width="stretch",
-            ):
-                discard_pending_draft()
-
     sessions = list_session_files()
     latest = None
     if sessions:
@@ -1021,72 +1029,31 @@ def render_dashboard() -> None:
         int(value)
         for value in st.session_state.global_weak_stats.get(st.session_state.mode, {}).values()
     )
+    pending_draft = st.session_state.get("pending_draft")
+    if st.session_state.get("start_time") is not None:
+        pending_draft = None
 
-    with st.container(border=True):
-        st.markdown("## 今天练什么？")
-        st.write(
-            "选择目标岗位和面试形式，完成一次完整模拟。结束后自动生成复盘、"
-            "薄弱项和下一步训练建议。"
-        )
-        action_left, action_right = st.columns([1, 1])
-        start_button_type = (
-            "secondary" if isinstance(pending_draft, dict) else "primary"
-        )
-        if action_left.button(
-            "开始一次面试",
-            type=start_button_type,
-            key="dashboard_start",
-            width="stretch",
-        ):
-            go_to("setup")
-        if action_right.button(
-            "查看成长记录",
-            key="dashboard_growth",
-            width="stretch",
-        ):
-            go_to("growth")
+    def open_setup() -> None:
+        go_to("setup")
 
-    latest_score = None
-    if latest:
-        latest_score = (latest.get("structured_report") or {}).get("overall_score")
-    if sessions:
-        render_metric_grid(
-            [
-                ("历史训练", str(len(sessions))),
-                ("当前轮次", st.session_state.mode),
-                (
-                    "最近参考分",
-                    f"{float(latest_score):.1f}/10" if latest_score is not None else "暂无",
-                ),
-                ("弱项记录", str(weak_items)),
-            ]
-        )
-    else:
-        with st.container(border=True):
-            st.markdown("### 还没有训练记录")
-            st.write("建议先完成一次完整模拟，系统会在结束后生成参考分、复盘和成长记录。")
-            st.caption("首次练习建议：选择一个目标岗位，补充 JD 和简历，完成 3–5 轮回答后生成复盘。")
+    def open_growth() -> None:
+        go_to("growth")
 
-    st.subheader("训练入口")
-    card_cols = st.columns(3)
-    with card_cols[0].container(border=True, height="stretch"):
-        st.markdown("#### 定向模拟")
-        st.caption("按岗位轮次和风格完成一次结构化面试。")
-        if st.button("进入设置", key="dashboard_card_setup", width="stretch"):
-            go_to("setup")
-    with card_cols[1].container(border=True, height="stretch"):
-        st.markdown("#### 最近复盘")
-        if latest and latest.get("feedback"):
-            st.caption(str(latest.get("time", "最近一次面试")))
-            if st.button("打开报告", key="dashboard_card_report", width="stretch"):
-                go_to("report")
-        else:
-            st.caption("完成一次面试后，这里会显示最近复盘。")
-    with card_cols[2].container(border=True, height="stretch"):
-        st.markdown("#### 能力趋势")
-        st.caption("查看历史记录、重复弱项和训练变化。")
-        if st.button("查看成长", key="dashboard_card_growth", width="stretch"):
-            go_to("growth")
+    def open_report() -> None:
+        go_to("report")
+
+    render_dashboard_view(
+        sessions=sessions,
+        latest=latest,
+        weak_items=weak_items,
+        current_mode=st.session_state.mode,
+        pending_draft=pending_draft,
+        on_start=open_setup,
+        on_growth=open_growth,
+        on_report=open_report,
+        on_restore=restore_pending_draft,
+        on_discard=discard_pending_draft,
+    )
 
 
 def render_setup(mode_cfg: dict) -> None:
@@ -1523,6 +1490,7 @@ def render_report() -> None:
         structured_report=st.session_state.get("structured_report"),
         job_match=st.session_state.get("job_match"),
         messages_count=len(st.session_state.get("messages", [])),
+        demo_mode=bool(st.session_state.get("report_duration_is_demo", False)),
         last_record_path=st.session_state.get("last_record_path"),
         last_record_markdown=st.session_state.get("last_record_markdown"),
         mode=st.session_state.mode,
@@ -1574,16 +1542,21 @@ def render_growth(mode_cfg: dict) -> None:
     if len(progress_records) >= 2:
         trend_data = pd.DataFrame(
             [
-                {"时间": item.time, "表达结构参考分": item.overall_score}
-                for item in progress_records
+                {
+                    "训练": f"第 {index} 次",
+                    "时间": item.time,
+                    "表达结构参考分": item.overall_score,
+                }
+                for index, item in enumerate(progress_records, start=1)
             ]
         )
         st.line_chart(
             trend_data,
-            x="时间",
+            x="训练",
             y="表达结构参考分",
-            alt="当前面试轮次的历史表达结构参考分趋势",
+            alt="按训练次序展示的表达结构参考分趋势",
         )
+        st.caption("图中按训练次序展示，完整时间见下方历史记录。")
         change = compare_weak_areas(
             list(progress_records[-1].tags),
             list(progress_records[-2].tags),
@@ -1669,6 +1642,7 @@ def render_growth(mode_cfg: dict) -> None:
             st.session_state.stage_started_at = None
             st.session_state.timer_alert = False
             st.session_state.report_duration_seconds = saved.get("duration_seconds")
+            st.session_state.report_duration_is_demo = bool(saved.get("demo_mode", False))
             st.session_state.interview_started_at = saved.get("started_at")
             st.session_state.last_record_path = None
             st.session_state.last_record_markdown = None
@@ -1702,6 +1676,10 @@ def render_growth(mode_cfg: dict) -> None:
             ):
                 session_file.unlink(missing_ok=True)
                 markdown_path.unlink(missing_ok=True)
+                delete_interview_draft(
+                    tenant_save_dir(),
+                    str(saved.get("session_id", "")),
+                )
                 st.session_state.delete_confirm_id = None
                 st.rerun()
             if cancel_col.button(
@@ -1744,16 +1722,13 @@ def cached_rag_metrics() -> dict:
 
 
 def render_admin() -> None:
-    db_path = Path(
-        os.getenv("INTERVIEWLOOP_DB_PATH", BASE_DIR / "interview_loop.db")
-    )
     render_admin_view(
         registry=SCENARIO_REGISTRY,
         tool_registry=TOOL_REGISTRY,
         model_gateway=MODEL_GATEWAY,
         tenant_quota_store=TENANT_QUOTA_STORE,
         base_dir=BASE_DIR,
-        db_path=db_path,
+        db_path=agent_run_repository_path(),
         rag_metrics=cached_rag_metrics(),
         tenant_id=current_tenant_id(),
     )

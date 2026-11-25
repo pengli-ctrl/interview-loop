@@ -26,7 +26,8 @@ weak_stats_mode.json
 .vscode/
 .idea/
 .DS_Store
-Thumbs.db.edge-shot-temp/
+Thumbs.db
+.edge-shot-temp/
 interview_loop.db
 data/
 

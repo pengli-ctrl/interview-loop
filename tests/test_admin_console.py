@@ -4,6 +4,9 @@ from streamlit.testing.v1 import AppTest
 
 import interview_loop.config as config
 from interview_loop.admin.control_plane import (
+    format_quality_thresholds,
+    format_quota_snapshot,
+    format_rag_thresholds,
     model_profile_rows,
     quality_metrics,
     recent_run_rows,
@@ -76,3 +79,15 @@ def test_admin_console_reads_real_scenario_tool_run_and_eval_data(monkeypatch, t
     assert any(header.value == "平台控制台" for header in at.header)
     assert len(at.dataframe) >= 5
     assert at.selectbox(key="admin_run_selector").value == run.run_id
+
+
+def test_admin_formatting_helpers_do_not_render_python_dicts():
+    rag = format_rag_thresholds({"precision": 0.3, "recall": 0.9, "mrr": 0.9, "hit_rate": 0.9})
+    quality = format_quality_thresholds({"weighted_mae": 0.75, "max_case_mae": 1.0})
+    quota = format_quota_snapshot({"used_tokens": 10, "max_tokens": 100, "used_cost": 0.12, "max_cost": 5.0})
+    assert "Precision \u2265 0.30" in rag
+    assert "Hit Rate \u2265 0.90" in rag
+    assert "MAE \u2264 0.75" in quality
+    assert "10 / 100 Token" in quota
+    assert "\u00a50.1200 / \u00a55.00" in quota
+    assert "{" not in rag + quality + quota

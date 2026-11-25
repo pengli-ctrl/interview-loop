@@ -14,5 +14,5 @@ def build_demo_llm_response(system_prompt: str, user_msg: str) -> str:
     match = re.search(r"当前主问题：第 (\d+)/(\d+) 个：([^\n]+)", system_prompt)
     if match:
         number, total, topic = match.groups()
-        return f"【演示题 {number}/{total}】请结合你的真实经历说明：{topic}"
+        return f"【演示题 {number}/{total}】{topic.rstrip('。')}。"
     return "【演示题】请结合你的实际经历说明一个具体案例、关键取舍和最终结果。"

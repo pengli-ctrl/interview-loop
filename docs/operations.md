@@ -165,10 +165,11 @@ X-Permissions: record:write,audio:read
 |---|---|---|
 | `interview_sessions/` | 本地会话 JSON | 否 |
 | `面试记录/` | Markdown 面试记录 | 否 |
-| `interview_sessions/weak_stats.json` | 当前租户弱项统计 | 否 |
+| `interview_sessions/weak_stats.json` | 当前租户弱项统计；首次升级会从旧 `weak_stats_mode.json` 自动迁移 | 否 |
 | `interview_sessions/tenants/<tenant>/weak_stats.json` | 非本地租户弱项统计 | 否 |
 | `interview_loop.db` | 本地 AgentRun SQLite | 否 |
-| `demo/.capture/` | 捕获脚本临时数据 | 否 |
+| interview_sessions/drafts/ | 未完成面试草稿；最多 7 天并受保留策略约束 | 否 |
+| demo/.capture/ | 捕获脚本临时数据 | 否 |
 | `datasets/` | 黄金测试数据 | 是 |
 
 候选人开始面试前必须显式同意数据保存。支持 `ephemeral`、`standard`、`extended` 保留策略、PII 脱敏、导出和删除。
@@ -188,7 +189,9 @@ python scripts/evaluate_rag.py
 python scripts/evaluate_quality.py
 ```
 
-CI 还会运行 `scripts/capture_demo.py`，对完整候选人流程和管理页做 Playwright 截图与断言。
+候选人 UI 生成的 AgentRun 会在复盘时写入同一 SQLite，控制台可直接查看最近 Run 和 Trace。
+
+CI 还会安装 Noto CJK 字体并运行 scripts/capture_demo.py，对完整候选人流程和管理页做 Playwright 截图与断言。
 
 Streamlit 健康检查：
 

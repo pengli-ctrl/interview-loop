@@ -158,6 +158,11 @@ def assess_job_match(
 def build_job_context(report: JobMatchReport | None) -> str:
     if report is None:
         return ""
+    if report.match_level == "unscored":
+        return (
+            "岗位匹配未评分（技能目录未覆盖该 JD）；"
+            f"风险：{'；'.join(report.risk_areas) or '无'}。"
+        )
     return (
         f"岗位匹配分数：{report.match_score}/100；"
         f"已匹配技能：{', '.join(report.matched_skills) or '无'}；"

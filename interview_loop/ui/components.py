@@ -41,6 +41,20 @@ def inject_ui_css() -> None:
           font-variant-numeric: tabular-nums;
         }
         .il-score-value span { color: #64748b; font-size: 1rem; font-weight: 550; }
+        [data-testid="stSidebar"] [role="radiogroup"] { gap: 0.25rem; }
+        [data-testid="stSidebar"] [role="radiogroup"] label {
+          width: 100%; padding: 0.45rem 0.65rem; border-radius: 10px;
+          transition: background 120ms ease;
+        }
+        [data-testid="stSidebar"] [role="radiogroup"] label:hover {
+          background: #eef2f7;
+        }
+        [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
+          background: #e8f0ff; color: #1d4ed8; font-weight: 650;
+        }
+        [data-testid="stSidebar"] [role="radiogroup"] label > div:first-child {
+          display: none;
+        }
         </style>
         """,
         unsafe_allow_html=True,

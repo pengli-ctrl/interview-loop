@@ -41,7 +41,7 @@ Streamlit UI ───────────────┐
 | 目录 | 职责 | 关键约束 |
 |---|---|---|
 | `app.py` | Streamlit 入口、会话状态和用例编排 | 页面展示委托给 `interview_loop/ui/` |
-| `interview_loop/ui/` | 通用组件、复盘页和管理页展示 | 不承载领域规则或外部 Provider 调用 |
+| `interview_loop/ui/` | 通用组件、工作台、复盘页和管理页展示 | 不承载领域规则或外部 Provider 调用 |
 | `interview_loop/core/` | 状态机、追问判定、问题生成、复盘、岗位匹配 | 纯逻辑优先，可 pytest |
 | `interview_loop/scenarios/` | 场景模型、JSON 配置包、校验和注册表 | UI 与 API 共用同一配置 |
 | `interview_loop/services/` | LLM、ASR、TTS Provider 适配 | 不直接操作页面或数据库 |
@@ -80,7 +80,8 @@ Streamlit UI ───────────────┐
 | 会话 JSON | `interview_sessions/` | 每次面试的轮次、阶段、问答和报告 |
 | Markdown 记录 | `面试记录/` | 可下载的完整训练记录 |
 | 弱项统计 | `interview_sessions/weak_stats.json` | 按租户、按面试轮次聚合薄弱标签 |
-| AgentRun | `interview_loop.db` 或 `INTERVIEWLOOP_DB_PATH` | SQLite 中的 Run、事件、幂等和审计数据 |
+| AgentRun | interview_loop.db 或 INTERVIEWLOOP_DB_PATH | UI 和 API 共用；SQLite 中的 Run、事件、幂等和审计数据 |
+| 进行中草稿 | interview_sessions/drafts/ | 最多 7 天，受数据保留策略约束，包含简历上下文 |
 | 演示隔离数据 | `demo/.capture/` | 捕获脚本专用，不进入版本控制 |
 
 运行时目录默认被 `.gitignore` 排除。演示捕获会重定向会话、记录和弱项统计路径，并使用独立 SQLite 数据库，不会污染真实训练数据。

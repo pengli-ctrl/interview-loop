@@ -6,6 +6,7 @@ def test_demo_question_is_stage_aware():
     response = build_demo_llm_response(prompt, "请给出当前这一题")
     assert "2/3" in response
     assert "项目架构与关键取舍" in response
+    assert "说明：" not in response
 
 
 def test_demo_review_and_tags():

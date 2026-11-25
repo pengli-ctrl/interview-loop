@@ -152,6 +152,7 @@ http://localhost:8501
 - [ADR-007: FastAPI vertical slice](docs/adr/0007-fastapi-vertical-slice.md)
 - [ADR-008: SQLite-first persistence](docs/adr/0008-sqlite-first-persistence.md)
 - [ADR-009: API auth and tool permissions](docs/adr/0009-api-auth-and-tool-permissions.md)
+- [ADR-010: SSE event streaming](docs/adr/0010-sse-event-streaming.md)
 
 ## 当前局限
 
@@ -219,6 +220,9 @@ uvicorn interview_loop.api.main:app --reload
 - `GET /v1/agent-runs/{run_id}`
 - `POST /v1/agent-runs/{run_id}/start`
 - `POST /v1/agent-runs/{run_id}/events`
+- `POST /v1/agent-runs/{run_id}/complete`
+- `POST /v1/agent-runs/{run_id}/fail`
+- `GET /v1/agent-runs/{run_id}/events/stream`（SSE）
 
 OpenAPI 文档：`http://localhost:8000/docs`。
 

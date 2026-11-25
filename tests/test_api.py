@@ -72,3 +72,26 @@ def test_api_key_authentication():
     assert secured.get("/health").status_code == 200
     assert secured.get("/v1/tools").status_code == 401
     assert secured.get("/v1/tools", headers={"X-API-Key": "secret"}).status_code == 200
+
+
+def test_complete_run_and_stream_events():
+    headers = {"X-Tenant-Id": "tenant-stream"}
+    created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}})
+    run_id = created.json()["run_id"]
+    client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
+    client.post(
+        f"/v1/agent-runs/{run_id}/events",
+        headers=headers,
+        json={"event_type": "answer.received", "node": "interview.answer", "payload": {}},
+    )
+    completed = client.post(f"/v1/agent-runs/{run_id}/complete", headers=headers)
+    assert completed.json()["status"] == "completed"
+
+    response = client.get(
+        f"/v1/agent-runs/{run_id}/events/stream",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert "event: run.started" in response.text
+    assert "event: answer.received" in response.text
+    assert "event: run.completed" in response.text

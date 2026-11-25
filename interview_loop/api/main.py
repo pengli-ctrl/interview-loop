@@ -1,11 +1,14 @@
+import asyncio
+import json
 import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from interview_loop.api.security import Principal, get_principal
-from interview_loop.platform.agent_run import AgentRun
+from interview_loop.platform.agent_run import AgentRun, RunStatus
 from interview_loop.platform.builtin_tools import build_default_tool_registry
 from interview_loop.platform.run_repository import (
     AgentRunNotFoundError,
@@ -26,6 +29,11 @@ class AppendEventRequest(BaseModel):
     node: str
     payload: dict = Field(default_factory=dict)
     duration_ms: int | None = None
+
+
+class FailRunRequest(BaseModel):
+    error: str
+    node: str = "interview.error"
 
 
 def create_app(
@@ -138,6 +146,69 @@ def create_app(
         run = owned_run(request, run_id, current)
         run.record_event(body.event_type, body.node, body.payload, body.duration_ms)
         return repo(request).save(run).to_dict()
+
+    @app.post("/v1/agent-runs/{run_id}/complete")
+    def complete_run(
+        request: Request,
+        run_id: str,
+        current: Principal = Depends(principal),
+    ) -> dict:
+        run = owned_run(request, run_id, current)
+        run.complete()
+        return repo(request).save(run).to_dict()
+
+    @app.post("/v1/agent-runs/{run_id}/fail")
+    def fail_run(
+        request: Request,
+        run_id: str,
+        body: FailRunRequest,
+        current: Principal = Depends(principal),
+    ) -> dict:
+        run = owned_run(request, run_id, current)
+        run.fail(body.error, body.node)
+        return repo(request).save(run).to_dict()
+
+    @app.get("/v1/agent-runs/{run_id}/events/stream")
+    async def stream_events(
+        request: Request,
+        run_id: str,
+        current: Principal = Depends(principal),
+    ) -> StreamingResponse:
+        owned_run(request, run_id, current)
+
+        async def event_generator():
+            last_index = 0
+            keepalive_ticks = 0
+            while True:
+                run = repo(request).get(run_id)
+                if run.tenant_id != current.tenant_id:
+                    return
+                for event in run.events[last_index:]:
+                    payload = {
+                        "event_type": event.event_type,
+                        "node": event.node,
+                        "payload": event.payload,
+                        "created_at": event.created_at,
+                        "duration_ms": event.duration_ms,
+                    }
+                    yield (
+                        f"id: {last_index}\n"
+                        f"event: {event.event_type}\n"
+                        f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    )
+                    last_index += 1
+                if run.status in {RunStatus.COMPLETED, RunStatus.FAILED}:
+                    return
+                keepalive_ticks += 1
+                if keepalive_ticks % 10 == 0:
+                    yield ": keep-alive\n\n"
+                await asyncio.sleep(1)
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     return app
 

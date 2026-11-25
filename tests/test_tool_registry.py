@@ -3,6 +3,7 @@ import pytest
 from interview_loop.platform.tool_registry import (
     ToolExecutionError,
     ToolNotFoundError,
+    ToolPermissionError,
     ToolRegistry,
     ToolSpec,
 )
@@ -34,3 +35,11 @@ def test_tool_error_wrapped():
     registry.register(ToolSpec("fail", "always fail", lambda: 1 / 0))
     with pytest.raises(ToolExecutionError):
         registry.execute("fail")
+
+
+def test_tool_permission_required():
+    registry = ToolRegistry()
+    registry.register(ToolSpec("export", "export", lambda: "ok", required_permission="record:write"))
+    with pytest.raises(ToolPermissionError):
+        registry.execute("export")
+    assert registry.execute("export", permissions={"record:write"}).output == "ok"

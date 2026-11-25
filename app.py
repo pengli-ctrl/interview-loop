@@ -80,7 +80,10 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
         data["agent_run"] = agent_run.to_dict()
     json_path = save_session_json(SAVE_DIR, data)
     markdown_path, markdown = TOOL_REGISTRY.execute(
-        "record.export", record_dir=RECORD_DIR, data=data
+        "record.export",
+        permissions={"record:write"},
+        record_dir=RECORD_DIR,
+        data=data,
     ).output
     st.session_state.last_record_path = str(markdown_path)
     st.session_state.last_record_markdown = markdown

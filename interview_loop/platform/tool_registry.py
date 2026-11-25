@@ -11,6 +11,10 @@ class ToolExecutionError(RuntimeError):
     pass
 
 
+class ToolPermissionError(PermissionError):
+    pass
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
@@ -46,8 +50,19 @@ class ToolRegistry:
         except KeyError as exc:
             raise ToolNotFoundError(name) from exc
 
-    def execute(self, name: str, /, **kwargs: Any) -> ToolResult:
+    def execute(
+        self,
+        name: str,
+        /,
+        *,
+        permissions: set[str] | None = None,
+        **kwargs: Any,
+    ) -> ToolResult:
         spec = self.get(name)
+        if spec.required_permission and spec.required_permission not in (permissions or set()):
+            raise ToolPermissionError(
+                f"Missing permission: {spec.required_permission}"
+            )
         started = perf_counter()
         try:
             output = spec.handler(**kwargs)

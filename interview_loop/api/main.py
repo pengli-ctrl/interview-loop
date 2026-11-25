@@ -4,7 +4,6 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from interview_loop.config import BASE_DIR
 from interview_loop.platform.agent_run import AgentRun
 from interview_loop.platform.builtin_tools import build_default_tool_registry
 from interview_loop.platform.run_repository import (
@@ -12,6 +11,8 @@ from interview_loop.platform.run_repository import (
     AgentRunRepository,
     SQLiteAgentRunRepository,
 )
+
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 
 class CreateRunRequest(BaseModel):

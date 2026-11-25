@@ -21,7 +21,7 @@ Position InterviewLoop as an AI interview-training platform:
 | 2. Scenario model and configuration registry | Complete | Typed model, validated JSON pack, shared registry, scenario API |
 | 3. JD and resume matching | Complete | Skill catalog, deterministic match report, UI/API integration and prompt context |
 | 4. Report and growth loop | Complete | Structured scores, evidence, action plan, trend chart, legacy fallback |
-| 5. Minimal platform control plane | Not started | Pending Step 4 closure |
+| 5. Minimal platform control plane | Complete | Guarded read-only scenarios, models, tools, quotas, traces and evaluations |
 
 ## Step 1: Product shell and information architecture
 

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
@@ -12,7 +13,17 @@ st.set_page_config(
     layout="wide",
 )
 
+from interview_loop.admin.control_plane import (
+    model_profile_rows,
+    quality_metrics,
+    recent_runs,
+    run_rows,
+    scenario_rows,
+    tool_rows,
+)
 from interview_loop.config import (
+    ADMIN_MODE,
+    BASE_DIR,
     DEMO_MODE,
     GLOBAL_STATS_PATH,
     MODE_CONFIG,
@@ -43,6 +54,7 @@ from interview_loop.evaluation.interview_report import (
     build_progress_records,
     compare_weak_areas,
 )
+from interview_loop.evaluation.rag_benchmark import evaluate_default_rag
 from interview_loop.export.markdown import safe_filename_part
 from interview_loop.platform.agent_run import AgentRun, RunStatus
 from interview_loop.platform.builtin_tools import build_default_tool_registry
@@ -51,6 +63,7 @@ from interview_loop.platform.model_gateway import (
     default_tenant_quota_store,
     default_usage_budget,
 )
+from interview_loop.platform.run_repository import SQLiteAgentRunRepository
 from interview_loop.rag.resume import extract_resume_text
 from interview_loop.rag.retriever import build_rag, query_resume
 from interview_loop.services.asr import audio2text
@@ -646,18 +659,27 @@ def render_interview_timer() -> None:
 
 
 # ===================== UI =====================
-VIEW_ORDER = ["dashboard", "setup", "interview", "report", "growth"]
+BASE_VIEW_ORDER = ["dashboard", "setup", "interview", "report", "growth"]
 VIEW_LABELS = {
     "dashboard": "工作台",
     "setup": "开始面试",
     "interview": "面试室",
     "report": "复盘报告",
     "growth": "成长记录",
+    "admin": "管理控制台",
 }
-LABEL_TO_VIEW = {label: view for view, label in VIEW_LABELS.items()}
+
+
+def visible_views() -> list[str]:
+    views = list(BASE_VIEW_ORDER)
+    if ADMIN_MODE:
+        views.append("admin")
+    return views
 
 
 def set_view(view: str) -> None:
+    if view == "admin" and not ADMIN_MODE:
+        view = "dashboard"
     st.session_state.current_view = view
     st.session_state.nav_version = st.session_state.get("nav_version", 0) + 1
 
@@ -673,17 +695,23 @@ def render_sidebar() -> None:
         st.caption("AI 面试训练平台")
         if DEMO_MODE:
             st.caption("当前为演示模式")
+        views = visible_views()
         current = st.session_state.get("current_view", "dashboard")
-        index = VIEW_ORDER.index(current) if current in VIEW_ORDER else 0
+        if current not in views:
+            current = "dashboard"
+            st.session_state.current_view = current
+        index = views.index(current)
         nav_version = int(st.session_state.get("nav_version", 0))
         selected = st.radio(
             "主导航",
-            [VIEW_LABELS[item] for item in VIEW_ORDER],
+            [VIEW_LABELS[item] for item in views],
             index=index,
             key=f"main_navigation_{nav_version}",
             label_visibility="collapsed",
         )
-        selected_view = LABEL_TO_VIEW[selected]
+        selected_view = next(
+            view for view in views if VIEW_LABELS[view] == selected
+        )
         if selected_view != current:
             st.session_state.current_view = selected_view
             st.rerun()
@@ -1409,6 +1437,116 @@ def render_growth(mode_cfg: dict) -> None:
                 )
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_rag_metrics() -> dict:
+    return evaluate_default_rag()
+
+
+def render_admin() -> None:
+    st.header("平台控制台")
+    st.caption("本地只读控制面：展示真实场景、模型、工具、运行轨迹和评估数据。")
+
+    registry = SCENARIO_REGISTRY
+    scenarios = registry.list_scenarios()
+    tools = TOOL_REGISTRY.list_tools()
+    quality_path = BASE_DIR / "datasets" / "quality_golden.json"
+    quality = quality_metrics(quality_path)
+    rag = cached_rag_metrics()
+
+    db_path = Path(
+        os.getenv("INTERVIEWLOOP_DB_PATH", BASE_DIR / "interview_loop.db")
+    )
+    repository = SQLiteAgentRunRepository(db_path)
+    runs = recent_runs(repository, limit=20)
+    current_run = st.session_state.get("agent_run")
+    if current_run is not None and all(run.run_id != current_run.run_id for run in runs):
+        runs.insert(0, current_run)
+
+    overview = st.columns(4)
+    overview[0].metric("场景包", len(scenarios))
+    overview[1].metric("工具", len(tools))
+    overview[2].metric("最近 AgentRun", len(runs))
+    overview[3].metric("质量门禁", "通过" if quality["passed"] else "失败")
+
+    tabs = st.tabs(["场景", "模型路由", "工具权限", "AgentRun / Trace", "评估指标"])
+    with tabs[0]:
+        st.subheader("场景目录")
+        st.dataframe(pd.DataFrame(scenario_rows(registry)), hide_index=True)
+
+    with tabs[1]:
+        st.subheader("模型路由与预算")
+        st.dataframe(pd.DataFrame(model_profile_rows(MODEL_GATEWAY)), hide_index=True)
+        breaker = MODEL_GATEWAY._breaker_policy
+        quota = TENANT_QUOTA_STORE.quota
+        st.caption(
+            f"熔断阈值：{breaker.failure_threshold} 次  "
+            f"冷却：{breaker.cooldown_seconds:g} 秒"
+        )
+        st.caption(
+            f"租户额度：{quota.max_tokens:,} Token / {quota.max_cost:.2f}  "
+            f"窗口 {quota.window_seconds:g} 秒"
+        )
+        st.caption(
+            f"当前租户用量快照：{TENANT_QUOTA_STORE.snapshot(current_tenant_id())}"
+        )
+
+    with tabs[2]:
+        st.subheader("工具目录与权限")
+        st.dataframe(pd.DataFrame(tool_rows(TOOL_REGISTRY)), hide_index=True)
+
+    with tabs[3]:
+        st.subheader("最近 AgentRun")
+        if not runs:
+            st.caption("暂无 AgentRun。可通过 API 或开始一次面试生成。")
+        else:
+            st.dataframe(pd.DataFrame(run_rows(runs)), hide_index=True)
+            selected_id = st.selectbox(
+                "查看运行轨迹",
+                [run.run_id for run in runs],
+                key="admin_run_selector",
+            )
+            selected_run = next(run for run in runs if run.run_id == selected_id)
+            st.caption(
+                f"Trace ID：{selected_run.trace_id}  状态：{selected_run.status.value}"
+            )
+            if selected_run.events:
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "事件": event.event_type,
+                                "节点": event.node,
+                                "耗时ms": event.duration_ms,
+                                "时间": event.created_at,
+                                "Payload": event.payload,
+                            }
+                            for event in selected_run.events
+                        ]
+                    ),
+                    hide_index=True,
+                )
+            else:
+                st.caption("该 Run 暂无事件。")
+
+    with tabs[4]:
+        st.subheader("RAG 检索指标")
+        rag_cols = st.columns(4)
+        rag_cols[0].metric("Precision@K", f"{rag['precision']:.3f}")
+        rag_cols[1].metric("Recall@K", f"{rag['recall']:.3f}")
+        rag_cols[2].metric("MRR", f"{rag['mrr']:.3f}")
+        rag_cols[3].metric("Hit Rate", f"{rag['hit_rate']:.3f}")
+        st.caption(f"黄金用例：{rag['case_count']}  阈值：{rag['thresholds']}")
+        st.subheader("模型输出质量校准")
+        quality_cols = st.columns(3)
+        quality_cols[0].metric("加权 MAE", f"{quality['weighted_mae']:.3f}")
+        quality_cols[1].metric("最大用例误差", f"{quality['max_case_mae']:.3f}")
+        quality_cols[2].metric(
+            "人工复核",
+            "通过" if quality["human_review_passed"] else "失败",
+        )
+        st.caption(f"质量阈值：{quality['thresholds']}")
+
+
 mode_cfg = MODE_CONFIG[st.session_state.mode]
 render_sidebar()
 view = st.session_state.get("current_view", "dashboard")
@@ -1420,6 +1558,8 @@ elif view == "interview":
     render_interview(mode_cfg)
 elif view == "report":
     render_report()
+elif view == "admin":
+    render_admin()
 else:
     render_growth(mode_cfg)
 

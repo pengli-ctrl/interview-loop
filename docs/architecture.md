@@ -75,6 +75,8 @@ interview_loop/
     tool_registry.py
   api/
     main.py
+  admin/
+    control_plane.py
 ```
 
 模块边界原则：

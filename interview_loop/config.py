@@ -32,6 +32,7 @@ RECORD_DIR = BASE_DIR / "面试记录"
 RECORD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_RESUME_BYTES = 10 * 1024 * 1024
 DEMO_MODE = _get_secret("demo_mode", "false").lower() in {"1", "true", "yes", "on"}
+ADMIN_MODE = _get_secret("admin_mode", "false").lower() in {"1", "true", "yes", "on"}
 
 SCENARIO_REGISTRY = get_default_registry()
 MODE_CONFIG = SCENARIO_REGISTRY.legacy_mode_config()

@@ -86,7 +86,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(
         title="InterviewLoop Agent API",
-        version="0.14.0",
+        version="0.15.0",
         description="Vertical agent-platform slice for interview run orchestration.",
     )
     db_path = Path(os.getenv("INTERVIEWLOOP_DB_PATH", BASE_DIR / "interview_loop.db"))

@@ -1,7 +1,10 @@
+import time
+
 from fastapi.testclient import TestClient
 
 from interview_loop.api.main import create_app
 from interview_loop.platform.run_repository import InMemoryAgentRunRepository
+from interview_loop.platform.tool_registry import ToolRegistry, ToolSpec
 
 app = create_app(repository=InMemoryAgentRunRepository(), api_key=None)
 client = TestClient(app)
@@ -95,3 +98,113 @@ def test_complete_run_and_stream_events():
     assert "event: run.started" in response.text
     assert "event: answer.received" in response.text
     assert "event: run.completed" in response.text
+
+
+def test_tool_execution_records_audit_and_reuses_idempotency_key():
+    headers = {"X-Tenant-Id": "tenant-tools", "X-User-Id": "user-tools"}
+    created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}})
+    run_id = created.json()["run_id"]
+    client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
+    payload = {
+        "arguments": {
+            "new_question": "Explain RAG retrieval.",
+            "previous_question": "Explain RAG retrieval.",
+        },
+        "idempotency_key": "tool-cache-1",
+    }
+
+    first = client.post(
+        f"/v1/agent-runs/{run_id}/tools/question.similarity",
+        headers=headers,
+        json=payload,
+    )
+    second = client.post(
+        f"/v1/agent-runs/{run_id}/tools/question.similarity",
+        headers=headers,
+        json=payload,
+    )
+
+    assert first.status_code == 200
+    assert first.json()["output"] is True
+    assert first.json()["cached"] is False
+    assert second.status_code == 200
+    assert second.json()["cached"] is True
+
+    conflict = client.post(
+        f"/v1/agent-runs/{run_id}/tools/question.similarity",
+        headers=headers,
+        json={
+            "arguments": {
+                "new_question": "Explain RAG.",
+                "previous_question": "Explain caching.",
+            },
+            "idempotency_key": "tool-cache-1",
+        },
+    )
+    assert conflict.status_code == 409
+
+    run = client.get(f"/v1/agent-runs/{run_id}", headers=headers).json()
+    event_types = [event["event_type"] for event in run["events"]]
+    assert event_types.count("tool.completed") == 1
+    assert "tool.started" in event_types
+    assert "tool.cache_hit" in event_types
+    assert "tool.idempotency_conflict" in event_types
+
+
+def test_tool_permission_is_enforced_before_execution():
+    headers = {"X-Tenant-Id": "tenant-tool-denied"}
+    created = client.post("/v1/agent-runs", headers=headers, json={"metadata": {}})
+    run_id = created.json()["run_id"]
+    client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
+
+    response = client.post(
+        f"/v1/agent-runs/{run_id}/tools/record.export",
+        headers=headers,
+        json={"arguments": {}},
+    )
+
+    assert response.status_code == 403
+    run = client.get(f"/v1/agent-runs/{run_id}", headers=headers).json()
+    assert run["events"][-1]["event_type"] == "tool.denied"
+
+
+def test_tool_timeout_returns_gateway_timeout_and_is_audited():
+    registry = ToolRegistry()
+    registry.register(
+        ToolSpec(
+            "slow",
+            "slow tool",
+            lambda: time.sleep(0.2),
+            timeout_seconds=0.02,
+            idempotent=True,
+        )
+    )
+    timeout_client = TestClient(
+        create_app(
+            repository=InMemoryAgentRunRepository(),
+            tool_registry=registry,
+            api_key=None,
+        )
+    )
+    headers = {"X-Tenant-Id": "tenant-timeout"}
+    created = timeout_client.post(
+        "/v1/agent-runs",
+        headers=headers,
+        json={"metadata": {}},
+    )
+    run_id = created.json()["run_id"]
+    timeout_client.post(f"/v1/agent-runs/{run_id}/start", headers=headers)
+
+    response = timeout_client.post(
+        f"/v1/agent-runs/{run_id}/tools/slow",
+        headers=headers,
+        json={"arguments": {}},
+    )
+
+    assert response.status_code == 504
+    run = timeout_client.get(
+        f"/v1/agent-runs/{run_id}",
+        headers=headers,
+    ).json()
+    failed = [event for event in run["events"] if event["event_type"] == "tool.failed"]
+    assert failed[-1]["payload"]["status"] == "timeout"

@@ -35,4 +35,4 @@ Negative:
 
 ## Follow-up
 
-Adopt OIDC/JWT or enterprise SSO, centralize RBAC/ABAC policies, and add audit logs for every tool execution.
+Adopt OIDC/JWT or enterprise SSO and centralize RBAC/ABAC policies. Tool execution audit logging is implemented in ADR-013; production still needs durable centralized audit storage and retention controls.

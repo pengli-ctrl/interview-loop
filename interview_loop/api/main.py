@@ -1,9 +1,11 @@
 import asyncio
+import base64
 import json
 import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -14,6 +16,14 @@ from interview_loop.platform.run_repository import (
     AgentRunNotFoundError,
     AgentRunRepository,
     SQLiteAgentRunRepository,
+)
+from interview_loop.platform.tool_registry import (
+    ToolAuditEvent,
+    ToolExecutionError,
+    ToolIdempotencyConflictError,
+    ToolNotFoundError,
+    ToolPermissionError,
+    ToolTimeoutError,
 )
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -36,6 +46,23 @@ class FailRunRequest(BaseModel):
     node: str = "interview.error"
 
 
+class ExecuteToolRequest(BaseModel):
+    arguments: dict = Field(default_factory=dict)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+def serialize_tool_output(output):
+    if isinstance(output, bytes):
+        return {
+            "type": "bytes",
+            "encoding": "base64",
+            "data": base64.b64encode(output).decode("ascii"),
+        }
+    if isinstance(output, Path):
+        return str(output)
+    return jsonable_encoder(output)
+
+
 def create_app(
     repository: AgentRunRepository | None = None,
     tool_registry=None,
@@ -43,7 +70,7 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(
         title="InterviewLoop Agent API",
-        version="0.1.0",
+        version="0.9.0",
         description="Vertical agent-platform slice for interview run orchestration.",
     )
     db_path = Path(os.getenv("INTERVIEWLOOP_DB_PATH", BASE_DIR / "interview_loop.db"))
@@ -90,6 +117,9 @@ def create_app(
                     "version": tool.version,
                     "timeout_seconds": tool.timeout_seconds,
                     "required_permission": tool.required_permission,
+                    "max_retries": tool.max_retries,
+                    "idempotent": tool.idempotent,
+                    "idempotency_ttl_seconds": tool.idempotency_ttl_seconds,
                 }
                 for tool in request.app.state.tool_registry.list_tools()
             ]
@@ -167,6 +197,78 @@ def create_app(
         run = owned_run(request, run_id, current)
         run.fail(body.error, body.node)
         return repo(request).save(run).to_dict()
+
+    @app.post("/v1/agent-runs/{run_id}/tools/{tool_name}")
+    def execute_tool(
+        request: Request,
+        run_id: str,
+        tool_name: str,
+        body: ExecuteToolRequest,
+        current: Principal = Depends(principal),
+    ) -> dict:
+        run = owned_run(request, run_id, current)
+        if run.status is not RunStatus.RUNNING:
+            raise HTTPException(status_code=409, detail="Agent run is not running")
+
+        reserved = {
+            "permissions",
+            "idempotency_key",
+            "tenant_id",
+            "user_id",
+            "run_id",
+            "audit_sink",
+        }
+        conflict = reserved.intersection(body.arguments)
+        if conflict:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Reserved tool argument(s): {', '.join(sorted(conflict))}",
+            )
+
+        def audit(event: ToolAuditEvent) -> None:
+            run.record_event(
+                event.event_type,
+                f"tool.{event.tool_name}",
+                event.to_payload(),
+                event.duration_ms,
+            )
+
+        try:
+            result = request.app.state.tool_registry.execute(
+                tool_name,
+                permissions=current.permissions,
+                idempotency_key=body.idempotency_key,
+                tenant_id=current.tenant_id,
+                user_id=current.user_id,
+                run_id=run_id,
+                audit_sink=audit,
+                **body.arguments,
+            )
+        except ToolNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Tool not found") from exc
+        except ToolPermissionError as exc:
+            repo(request).save(run)
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ToolTimeoutError as exc:
+            repo(request).save(run)
+            raise HTTPException(status_code=504, detail=str(exc)) from exc
+        except ToolIdempotencyConflictError as exc:
+            repo(request).save(run)
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ToolExecutionError as exc:
+            repo(request).save(run)
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        repo(request).save(run)
+        return {
+            "run_id": run_id,
+            "tool_name": result.tool_name,
+            "tool_version": result.tool_version,
+            "output": serialize_tool_output(result.output),
+            "duration_ms": result.duration_ms,
+            "attempts": result.attempts,
+            "cached": result.cached,
+        }
 
     @app.get("/v1/agent-runs/{run_id}/events/stream")
     async def stream_events(

@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
 import interview_loop.config as config
+from interview_loop.evaluation.interview_report import InterviewReport
 from interview_loop.evaluation.replay import replay_agent_run
 
 
@@ -96,6 +98,10 @@ def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
     assert not at.error, [item.value for item in at.error]
     assert at.session_state["current_view"] == "report"
     assert at.session_state["feedback"]
+    structured_report = at.session_state["structured_report"]
+    assert isinstance(structured_report, InterviewReport)
+    assert structured_report.overall_score > 0
+    assert len(structured_report.dimensions) == 4
     finished_events = at.session_state["agent_run"].events
     finished_types = [event.event_type for event in finished_events]
     assert "evaluation.completed" in finished_types
@@ -114,3 +120,41 @@ def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
     navigation.set_value("成长记录").run()
     assert not at.exception
     assert at.session_state["current_view"] == "growth"
+
+
+def test_legacy_session_without_structured_report_opens(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DEMO_MODE", True)
+    save_dir = tmp_path / "sessions"
+    save_dir.mkdir()
+    monkeypatch.setattr(config, "SAVE_DIR", save_dir)
+    monkeypatch.setattr(config, "RECORD_DIR", tmp_path / "records")
+    monkeypatch.setattr(config, "GLOBAL_STATS_PATH", tmp_path / "weak_stats.json")
+    legacy = {
+        "session_id": "legacy_session",
+        "started_at": "2026-01-01_10-00-00",
+        "time": "2026-01-01 10:00:00",
+        "completed_at": "2026-01-01 10:30:00",
+        "mode": "技术一面",
+        "interview_type": "闯关全真面试",
+        "style": "温和",
+        "messages": [
+            {"role": "interviewer", "content": "旧问题"},
+            {"role": "candidate", "content": "旧回答"},
+        ],
+        "feedback": "旧版复盘内容",
+        "tags": ["RAG"],
+    }
+    (save_dir / "legacy_session.json").write_text(
+        json.dumps(legacy, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    at = AppTest.from_file(str(app_path), default_timeout=30).run()
+    navigation = at.get_by_key(f"main_navigation_{at.session_state['nav_version']}")
+    navigation.set_value("成长记录").run()
+    assert not at.exception
+    at.button(key="history_legacy_session").click().run()
+    assert not at.exception
+    assert at.session_state["current_view"] == "report"
+    assert any("旧版" in item.value for item in at.info)

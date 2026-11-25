@@ -61,6 +61,12 @@ interview_loop/
     stats_store.py
   export/
     markdown.py
+  evaluation/
+    interview_report.py
+    retrieval.py
+    quality.py
+    replay.py
+    agent_metrics.py
   platform/
     agent_run.py
     builtin_tools.py
@@ -106,6 +112,12 @@ interview_loop/
     stats_store.py
   export/
     markdown.py
+  evaluation/
+    interview_report.py
+    retrieval.py
+    quality.py
+    replay.py
+    agent_metrics.py
   ui/
     pages.py
 ```

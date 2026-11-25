@@ -71,6 +71,45 @@ def build_markdown_record(data: dict) -> str:
             ]
         )
 
+    structured = data.get("structured_report") or {}
+    if structured:
+        lines.extend(
+            [
+                "## 结构化评分",
+                "",
+                f"综合得分：{structured.get('overall_score', '未记录')}/10",
+                "",
+                "| 维度 | 得分 | 权重 |",
+                "|---|---:|---:|",
+            ]
+        )
+        for item in structured.get("dimensions", []):
+            lines.append(
+                f"| {item.get('label', item.get('name', '未知'))} | "
+                f"{item.get('score', 0)} | {item.get('weight', 0)} |"
+            )
+        lines.extend(["", "### 优势", ""])
+        lines.extend(f"- {item}" for item in structured.get("strengths", []))
+        lines.extend(["", "### 风险与不足", ""])
+        lines.extend(f"- {item}" for item in structured.get("risks", []))
+        lines.extend(["", "### 行动计划", ""])
+        for item in structured.get("action_plan", []):
+            lines.append(
+                f"- **{item.get('priority', 'P1')}** {item.get('action', '')}"
+            )
+        lines.extend(["", "### 回答证据", ""])
+        for item in structured.get("evidence", []):
+            lines.append(
+                f"#### {item.get('dimension_label', '维度')} "
+                f"({item.get('score', 0)}/10)"
+            )
+            lines.append("")
+            lines.append(f"问题：{item.get('question', '')}")
+            lines.append("")
+            lines.append(f"回答摘录：{item.get('answer_excerpt', '')}")
+            lines.append("")
+        lines.append("")
+
     lines.extend(
         [
             "## 面试复盘报告",

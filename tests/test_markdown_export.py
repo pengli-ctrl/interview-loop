@@ -23,6 +23,26 @@ def _record_data():
         ],
         "feedback": "复盘报告",
         "tags": ["RAG", "Temporal"],
+        "structured_report": {
+            "overall_score": 7.2,
+            "dimensions": [
+                {"name": "architecture", "label": "架构设计", "score": 7.5, "weight": 0.3}
+            ],
+            "strengths": ["架构设计清晰"],
+            "risks": ["缺少量化结果"],
+            "action_plan": [
+                {"priority": "P1", "action": "补充量化案例", "related_dimension": "architecture"}
+            ],
+            "evidence": [
+                {
+                    "dimension": "architecture",
+                    "dimension_label": "架构设计",
+                    "question": "如何设计？",
+                    "answer_excerpt": "分层设计",
+                    "score": 7.5,
+                }
+            ],
+        },
     }
 
 
@@ -43,6 +63,8 @@ def test_markdown_handles_unanswered_question():
 
 def test_markdown_includes_review_and_tags():
     markdown = build_markdown_record(_record_data())
+    assert "## 结构化评分" in markdown
+    assert "综合得分：7.2/10" in markdown
     assert "## 面试复盘报告" in markdown
     assert "- RAG" in markdown
 

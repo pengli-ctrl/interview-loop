@@ -37,6 +37,12 @@ from interview_loop.core.question_engine import (
     questions_too_similar,
 )
 from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
+from interview_loop.evaluation.interview_report import (
+    InterviewReport,
+    build_interview_report,
+    build_progress_records,
+    compare_weak_areas,
+)
 from interview_loop.export.markdown import safe_filename_part
 from interview_loop.platform.agent_run import AgentRun, RunStatus
 from interview_loop.platform.builtin_tools import build_default_tool_registry
@@ -182,6 +188,7 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
 
     agent_run = st.session_state.get("agent_run")
     job_match = st.session_state.get("job_match")
+    structured_report = st.session_state.get("structured_report")
     data = build_session_data(
         session_id=st.session_state.session_id,
         mode=mode,
@@ -195,6 +202,11 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
         duration_seconds=duration_seconds,
         job_description=st.session_state.get("job_description", ""),
         job_match=job_match.to_dict() if isinstance(job_match, JobMatchReport) else None,
+        structured_report=(
+            structured_report.to_dict()
+            if isinstance(structured_report, InterviewReport)
+            else None
+        ),
         tenant_id=current_tenant_id(),
         user_id=st.session_state.get("user_id", "local"),
         trace_id=agent_run.trace_id if agent_run is not None else None,
@@ -247,6 +259,7 @@ defaults = {
     "messages": [],
     "current_question": "",
     "feedback": None,
+    "structured_report": None,
     "session_id": new_session_id(),
     "current_view": "dashboard",
     "nav_version": 0,
@@ -290,6 +303,7 @@ if st.session_state.get("interview_flow_version") != 4:
     st.session_state.stage_followup_count = 0
     st.session_state.messages = []
     st.session_state.feedback = None
+    st.session_state.structured_report = None
     st.session_state.current_question = ""
     st.session_state.start_time = None
     st.session_state.interview_started_at = None
@@ -309,6 +323,7 @@ def reset_interview_state() -> None:
     st.session_state.stage_followup_count = 0
     st.session_state.messages = []
     st.session_state.feedback = None
+    st.session_state.structured_report = None
     st.session_state.current_question = ""
     st.session_state.question_audio = None
     st.session_state.question_audio_error = None
@@ -460,6 +475,14 @@ def generate_review(mode_cfg: dict) -> bool:
     agent_run = st.session_state.get("agent_run")
     tags = extract_tags(feedback, tag_list)
     st.session_state.last_tags = tags
+    scenario = SCENARIO_REGISTRY.scenario_for_round(st.session_state.mode)
+    structured_report = build_interview_report(
+        st.session_state.messages,
+        scenario.rubric,
+        tags,
+        st.session_state.get("job_match"),
+    )
+    st.session_state.structured_report = structured_report
     try:
         update_global_stats(st.session_state.mode, tags)
     except Exception as exc:
@@ -472,6 +495,11 @@ def generate_review(mode_cfg: dict) -> bool:
                 "feedback_chars": len(feedback),
                 "tag_count": len(tags),
                 "tags": tags,
+                "overall_score": structured_report.overall_score,
+                "dimensions": [
+                    {"name": item.name, "score": item.score}
+                    for item in structured_report.dimensions
+                ],
             },
         )
     try:
@@ -706,10 +734,17 @@ def render_dashboard() -> None:
         ):
             go_to("growth")
 
-    metric_cols = st.columns(3)
+    latest_score = None
+    if latest:
+        latest_score = (latest.get("structured_report") or {}).get("overall_score")
+    metric_cols = st.columns(4)
     metric_cols[0].metric("历史训练", len(sessions))
     metric_cols[1].metric("当前轮次", st.session_state.mode)
-    metric_cols[2].metric("弱项记录", weak_items)
+    metric_cols[2].metric(
+        "最近得分",
+        f"{float(latest_score):.1f}/10" if latest_score is not None else "暂无",
+    )
+    metric_cols[3].metric("弱项记录", weak_items)
 
     st.subheader("训练入口")
     card_cols = st.columns(3)
@@ -1113,13 +1148,59 @@ def render_report() -> None:
     if st.session_state.get("start_time") is not None:
         duration_seconds = int(max(0, time.time() - st.session_state.start_time))
     tags = st.session_state.get("last_tags", [])
-    metric_cols = st.columns(3)
-    metric_cols[0].metric("回答轮次", len(st.session_state.messages) // 2)
-    metric_cols[1].metric("薄弱标签", len(tags))
-    metric_cols[2].metric(
+    structured_report = st.session_state.get("structured_report")
+    metric_cols = st.columns(4)
+    metric_cols[0].metric(
+        "综合得分",
+        (
+            f"{structured_report.overall_score:.1f}/10"
+            if isinstance(structured_report, InterviewReport)
+            else "旧记录"
+        ),
+    )
+    metric_cols[1].metric("回答轮次", len(st.session_state.messages) // 2)
+    metric_cols[2].metric("薄弱标签", len(tags))
+    metric_cols[3].metric(
         "用时",
         f"{(duration_seconds or 0) // 60} 分钟",
     )
+
+    if isinstance(structured_report, InterviewReport):
+        with st.container(border=True):
+            st.markdown("### 结构化评估")
+            st.write(structured_report.summary)
+            chart_data = pd.DataFrame(
+                [
+                    {"维度": item.label, "得分": item.score}
+                    for item in structured_report.dimensions
+                ]
+            )
+            st.bar_chart(
+                chart_data,
+                x="维度",
+                y="得分",
+                horizontal=True,
+                alt="本次面试各能力维度得分",
+            )
+            strength_col, risk_col = st.columns(2)
+            with strength_col:
+                st.markdown("#### 优势")
+                for item in structured_report.strengths:
+                    st.write(f"- {item}")
+            with risk_col:
+                st.markdown("#### 风险与不足")
+                for item in structured_report.risks:
+                    st.write(f"- {item}")
+            st.markdown("#### 下一步行动计划")
+            for action in structured_report.action_plan:
+                st.write(f"- **{action.priority}** {action.action}")
+            with st.expander("查看回答证据"):
+                for item in structured_report.evidence:
+                    st.markdown(f"**{item.dimension_label}**  {item.score}/10")
+                    st.caption(item.question)
+                    st.write(item.answer_excerpt)
+    else:
+        st.info("这是一条旧版面试记录，未包含结构化评分；原复盘内容仍可正常查看。")
 
     job_match = st.session_state.get("job_match")
     if isinstance(job_match, JobMatchReport):
@@ -1189,6 +1270,47 @@ def render_growth(mode_cfg: dict) -> None:
             else:
                 st.caption("暂无薄弱记录")
 
+    session_records = []
+    for session_file in list_session_files():
+        try:
+            session_records.append(json.loads(session_file.read_text(encoding="utf-8")))
+        except Exception:
+            continue
+    progress_records = build_progress_records(
+        session_records,
+        mode=st.session_state.mode,
+    )
+    st.subheader("能力趋势")
+    if progress_records:
+        trend_data = pd.DataFrame(
+            [
+                {"时间": item.time, "综合得分": item.overall_score}
+                for item in progress_records
+            ]
+        )
+        st.line_chart(
+            trend_data,
+            x="时间",
+            y="综合得分",
+            alt="当前面试轮次的历史综合得分趋势",
+        )
+        if len(progress_records) >= 2:
+            change = compare_weak_areas(
+                list(progress_records[-1].tags),
+                list(progress_records[-2].tags),
+            )
+            st.caption("最近两次薄弱项变化")
+            if change.new_areas:
+                st.write("新增：" + "、".join(change.new_areas))
+            if change.resolved_areas:
+                st.write("已改善：" + "、".join(change.resolved_areas))
+            if change.persistent_areas:
+                st.write("持续存在：" + "、".join(change.persistent_areas))
+        else:
+            st.caption("再完成一轮面试后即可比较薄弱项变化。")
+    else:
+        st.caption("暂无结构化得分趋势；完成新一轮面试后会自动生成。")
+
     st.subheader("历史面试")
     sessions = list_session_files()
     if not sessions:
@@ -1211,6 +1333,12 @@ def render_growth(mode_cfg: dict) -> None:
             st.session_state.messages = saved.get("messages", [])
             st.session_state.feedback = saved.get("feedback")
             st.session_state.last_tags = saved.get("tags", [])
+            restored_report = saved.get("structured_report") or {}
+            st.session_state.structured_report = (
+                InterviewReport.from_dict(restored_report)
+                if restored_report
+                else None
+            )
             st.session_state.job_description = saved.get("job_description", "")
             restored_match = saved.get("job_match") or {}
             st.session_state.job_match = (

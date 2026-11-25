@@ -153,6 +153,7 @@ http://localhost:8501
 - [ADR-008: SQLite-first persistence](docs/adr/0008-sqlite-first-persistence.md)
 - [ADR-009: API auth and tool permissions](docs/adr/0009-api-auth-and-tool-permissions.md)
 - [ADR-010: SSE event streaming](docs/adr/0010-sse-event-streaming.md)
+- [ADR-011: Golden dataset and retrieval metrics](docs/adr/0011-golden-dataset-and-retrieval-metrics.md)
 
 ## 当前局限
 
@@ -246,6 +247,27 @@ X-Permissions: record:write,audio:read
 未设置 API Key 时，默认允许本地开发访问。不同租户无法查询或修改对方的 AgentRun。
 
 当前默认使用 SQLite 持久化 AgentRun 与事件，适合本地开发和 CI；公测阶段应替换为 PostgreSQL，并补充租户权限、迁移和并发控制。
+
+## Evaluation
+
+Golden dataset:
+
+`datasets/rag_golden.json`
+
+Run retrieval metrics:
+
+```bash
+python scripts/evaluate_rag.py
+```
+
+Metrics:
+
+- Precision@K
+- Recall@K
+- MRR
+- Hit Rate
+
+Weighted rubric scoring is available in `interview_loop/evaluation/rubric.py`.
 
 ## Docker 运行
 

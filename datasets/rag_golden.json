@@ -1,0 +1,58 @@
+{
+  "name": "interview_rag_golden_v1",
+  "k": 3,
+  "documents": [
+    {
+      "id": "d1",
+      "text": "RAG 链路使用 BM25、向量检索和重排；本地向量模型不可用时自动回退 BM25，保证离线可用。"
+    },
+    {
+      "id": "d2",
+      "text": "长任务 Agent 使用计划优先的确定性工作流，通过 Temporal 保存状态、重试和断点恢复。"
+    },
+    {
+      "id": "d3",
+      "text": "可观测体系使用 OpenTelemetry 采集 trace、metric 和 log，并关联模型调用和工具调用。"
+    },
+    {
+      "id": "d4",
+      "text": "多租户平台需要通过 tenant_id、RBAC、工具权限和审计日志隔离简历、录音和面试记录。"
+    },
+    {
+      "id": "d5",
+      "text": "语音输入使用 ASR 转写，面试官问题使用 TTS 合成，失败时可以退化为文字输入。"
+    }
+  ],
+  "cases": [
+    {
+      "query": "RAG 检索如何降级？",
+      "relevant_ids": [
+        "d1"
+      ]
+    },
+    {
+      "query": "长任务如何可靠执行和恢复？",
+      "relevant_ids": [
+        "d2"
+      ]
+    },
+    {
+      "query": "如何追踪模型和工具调用？",
+      "relevant_ids": [
+        "d3"
+      ]
+    },
+    {
+      "query": "多租户数据如何隔离？",
+      "relevant_ids": [
+        "d4"
+      ]
+    },
+    {
+      "query": "语音输入输出失败怎么办？",
+      "relevant_ids": [
+        "d5"
+      ]
+    }
+  ]
+}

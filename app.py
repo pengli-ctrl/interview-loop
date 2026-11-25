@@ -27,7 +27,7 @@ from interview_loop.core.question_engine import (
 from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
 from interview_loop.platform.agent_run import AgentRun
 from interview_loop.platform.builtin_tools import build_default_tool_registry
-from interview_loop.platform.model_gateway import ModelGateway
+from interview_loop.platform.model_gateway import ModelGateway, default_usage_budget
 from interview_loop.rag.resume import extract_resume_text
 from interview_loop.rag.retriever import build_rag, query_resume
 from interview_loop.services.asr import audio2text
@@ -44,6 +44,37 @@ from interview_loop.storage.stats_store import load_stats, save_stats
 
 MODEL_GATEWAY = ModelGateway()
 TOOL_REGISTRY = build_default_tool_registry()
+
+
+def record_model_call(result, node: str) -> None:
+    agent_run = st.session_state.get("agent_run")
+    if agent_run is None:
+        return
+    budget = st.session_state.get("model_budget")
+    agent_run.record_event(
+        "model.call",
+        node,
+        {
+            "task": result.task,
+            "provider": result.provider,
+            "model": result.model,
+            "prompt_version": result.prompt_version,
+            "latency_ms": result.latency_ms,
+            "estimated_input_tokens": result.estimated_input_tokens,
+            "estimated_output_tokens": result.estimated_output_tokens,
+            "estimated_cost": result.estimated_cost,
+            "attempts": result.attempts,
+            "budget_used_tokens": budget.used_tokens if budget else None,
+            "budget_used_cost": round(budget.used_cost, 6) if budget else None,
+        },
+    )
+
+
+def record_run_error(error: Exception | str, node: str) -> None:
+    agent_run = st.session_state.get("agent_run")
+    if agent_run is None:
+        return
+    agent_run.record_event("run.error", node, {"error": str(error)[:500]})
 
 
 # ===================== 持久化与初始化 =====================
@@ -78,6 +109,9 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
     agent_run = st.session_state.get("agent_run")
     if agent_run is not None:
         data["agent_run"] = agent_run.to_dict()
+    budget = st.session_state.get("model_budget")
+    if budget is not None:
+        data["model_usage"] = budget.to_dict()
     json_path = save_session_json(SAVE_DIR, data)
     markdown_path, markdown = TOOL_REGISTRY.execute(
         "record.export",
@@ -122,6 +156,7 @@ defaults = {
     "last_record_path": None,
     "last_record_markdown": None,
     "agent_run": None,
+    "model_budget": default_usage_budget(),
     "session_list": list_session_files(),
 }
 for key, value in defaults.items():
@@ -141,6 +176,7 @@ if st.session_state.get("interview_flow_version") != 4:
     st.session_state.last_record_path = None
     st.session_state.last_record_markdown = None
     st.session_state.agent_run = None
+    st.session_state.model_budget = default_usage_budget()
     st.session_state.session_id = new_session_id()
     st.session_state.interview_flow_version = 4
 
@@ -161,6 +197,7 @@ def reset_interview_state() -> None:
     st.session_state.last_record_path = None
     st.session_state.last_record_markdown = None
     st.session_state.agent_run = None
+    st.session_state.model_budget = default_usage_budget()
 # ===================== 简历解析与 RAG =====================
 def set_question_audio(question: str) -> None:
     try:
@@ -173,8 +210,12 @@ def set_question_audio(question: str) -> None:
 def extract_tags(review_text: str, valid_tags: list[str]) -> list[str]:
     try:
         result = MODEL_GATEWAY.complete(
-            "tagging", "", build_tag_prompt(review_text, valid_tags)
+            "tagging",
+            "",
+            build_tag_prompt(review_text, valid_tags),
+            budget=st.session_state.get("model_budget"),
         )
+        record_model_call(result, "model.tagging")
         raw = result.content.strip()
         return parse_tags(raw, valid_tags)
     except Exception:
@@ -212,12 +253,22 @@ def get_stage_question(
         previous_question=previous_question,
         last_answer=last_answer,
     )
-    result = MODEL_GATEWAY.complete("question", prompt.system_prompt, "请给出当前这一题")
+    result = MODEL_GATEWAY.complete(
+        "question",
+        prompt.system_prompt,
+        "请给出当前这一题",
+        budget=st.session_state.get("model_budget"),
+    )
+    record_model_call(result, "model.question")
     question = result.content
     if previous_question and last_answer and questions_too_similar(question, previous_question):
         repair_result = MODEL_GATEWAY.complete(
-            "question", build_repair_prompt(prompt.system_prompt), "请重新给出一个不同的问题"
+            "question",
+            build_repair_prompt(prompt.system_prompt),
+            "请重新给出一个不同的问题",
+            budget=st.session_state.get("model_budget"),
         )
+        record_model_call(repair_result, "model.question.repair")
         question = repair_result.content
     if previous_question and last_answer and questions_too_similar(question, previous_question):
         question = build_similarity_fallback(prompt.current_topic, last_answer)
@@ -230,7 +281,14 @@ def get_weak_question(mode: str) -> str:
         return MODE_CONFIG[mode]["stage_list"][0]["pool"][0]
     top_tag = max(stats.items(), key=lambda item: item[1])[0]
     prompt = f"【{mode}】薄弱点：{top_tag}，生成一道面试题，只输出题目。"
-    return MODEL_GATEWAY.complete("question", "你是面试出题专家", prompt).content
+    result = MODEL_GATEWAY.complete(
+        "question",
+        "你是面试出题专家",
+        prompt,
+        budget=st.session_state.get("model_budget"),
+    )
+    record_model_call(result, "model.question.weak")
+    return result.content
 
 
 def generate_review(mode_cfg: dict) -> bool:
@@ -246,8 +304,16 @@ def generate_review(mode_cfg: dict) -> bool:
         messages=st.session_state.messages,
     )
     try:
-        feedback = MODEL_GATEWAY.complete("review", reviewer_prompt, "").content
+        result = MODEL_GATEWAY.complete(
+            "review",
+            reviewer_prompt,
+            "",
+            budget=st.session_state.get("model_budget"),
+        )
+        record_model_call(result, "model.review")
+        feedback = result.content
     except Exception as exc:
+        record_run_error(exc, "model.review.failed")
         st.error(str(exc))
         return False
 
@@ -314,6 +380,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                     last_answer=ans_text,
                 )
             except Exception as exc:
+                record_run_error(exc, "model.question.failed")
                 st.error(str(exc))
                 return False
             st.session_state.stage_followup_count = decision.followup_count
@@ -331,6 +398,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                     last_answer=ans_text,
                 )
             except Exception as exc:
+                record_run_error(exc, "model.question.failed")
                 st.error(str(exc))
                 return False
             st.session_state.stage_main_index = decision.main_index
@@ -350,6 +418,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                     last_answer=ans_text,
                 )
             except Exception as exc:
+                record_run_error(exc, "model.question.failed")
                 st.error(str(exc))
                 return False
             st.session_state.current_stage_idx = next_stage_idx
@@ -545,6 +614,16 @@ with col_main:
             ):
                 st.warning("所有阶段已完成，可以点击 Finish 生成复盘或开启新一轮")
             else:
+                st.session_state.model_budget = default_usage_budget()
+                agent_run = AgentRun(
+                    metadata={
+                        "mode": st.session_state.mode,
+                        "interview_type": st.session_state.interview_type,
+                        "style": st.session_state.style,
+                    }
+                )
+                agent_run.start("interview.start")
+                st.session_state.agent_run = agent_run
                 try:
                     with st.spinner("正在生成第一道题..."):
                         ctx = query_resume(st.session_state.resume_retriever, "")
@@ -561,6 +640,7 @@ with col_main:
                         else:
                             question = get_weak_question(st.session_state.mode)
                 except Exception as exc:
+                    record_run_error(exc, "interview.start.failed")
                     st.error(str(exc))
                 else:
                     st.session_state.start_time = time.time()
@@ -568,14 +648,6 @@ with col_main:
                         "%Y-%m-%d_%H-%M-%S"
                     )
                     st.session_state.current_question = question
-                    agent_run = AgentRun(
-                        metadata={
-                            "mode": st.session_state.mode,
-                            "interview_type": st.session_state.interview_type,
-                            "style": st.session_state.style,
-                        }
-                    )
-                    agent_run.start("interview.start")
                     agent_run.record_event(
                         "question.generated",
                         "interview.question",
@@ -670,6 +742,30 @@ with col_main:
         reset_interview_state()
         st.rerun()
 with col_side:
+    st.subheader("本轮模型用量")
+    budget = st.session_state.get("model_budget")
+    agent_run = st.session_state.get("agent_run")
+    if budget is not None:
+        st.caption(
+            f"Token: {budget.used_tokens:,} / {budget.max_tokens:,}  "
+            f"估算成本(CNY): {budget.used_cost:.4f} / {budget.max_cost:.2f}"
+        )
+        model_calls = (
+            [event for event in agent_run.events if event.event_type == "model.call"]
+            if agent_run is not None
+            else []
+        )
+        st.caption(f"已记录模型调用 {len(model_calls)} 次；成本按配置单价估算。")
+        if model_calls:
+            with st.expander("最近模型调用"):
+                for event in model_calls[-5:]:
+                    payload = event.payload
+                    st.caption(
+                        f"{event.node} | {payload.get('model', 'unknown')} | "
+                        f"{payload.get('latency_ms', 0)} ms | "
+                        f"{payload.get('attempts', 0)} 次尝试"
+                    )
+
     st.subheader("📊 分轮次薄弱统计")
     tabs = st.tabs(MODE_LIST)
     for idx, mode in enumerate(MODE_LIST):
@@ -729,6 +825,8 @@ with col_side:
             st.session_state.interview_started_at = saved.get("started_at")
             st.session_state.last_record_path = None
             st.session_state.last_record_markdown = None
+            st.session_state.agent_run = None
+            st.session_state.model_budget = default_usage_budget()
             st.session_state.session_id = new_session_id()
             st.rerun()
 

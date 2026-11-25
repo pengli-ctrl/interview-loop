@@ -28,6 +28,7 @@ InterviewLoop 将一次技术面试拆成轮次、阶段、主问题、追问和
 - ASR/TTS 接入火山引擎新版豆包语音。
 - 大模型接入 DeepSeek OpenAI 兼容接口。
 - 重复问题检测和阶段约束。
+- 模型网关支持任务级路由、失败重试、Provider 回退和单轮 Token/成本预算。
 - 面试结束生成复盘、薄弱标签和完整 Markdown 记录。
 - 支持历史记录、弱项统计、跳过阶段和开启新一轮。
 
@@ -130,6 +131,10 @@ http://localhost:8501
 | `volc_tts_resource_id` | TTS 资源版本 |
 | `volc_asr_resource_id` | ASR 资源版本 |
 | `volc_voice_type` | 发音人 / 音色 ID |
+| `llm_max_tokens_per_run` | 单轮面试模型 Token 预算 |
+| `llm_max_cost_per_run` | 单轮面试模型成本预算（人民币估算） |
+| `llm_input_cost_per_million` | 输入 Token 单价，元 / 百万 Token |
+| `llm_output_cost_per_million` | 输出 Token 单价，元 / 百万 Token |
 
 ## 本地数据
 
@@ -154,6 +159,7 @@ http://localhost:8501
 - [ADR-009: API auth and tool permissions](docs/adr/0009-api-auth-and-tool-permissions.md)
 - [ADR-010: SSE event streaming](docs/adr/0010-sse-event-streaming.md)
 - [ADR-011: Golden dataset and retrieval metrics](docs/adr/0011-golden-dataset-and-retrieval-metrics.md)
+- [ADR-012: Model routing, budgets and telemetry](docs/adr/0012-model-routing-budgets-and-telemetry.md)
 
 ## 当前局限
 
@@ -170,6 +176,7 @@ http://localhost:8501
 - [x] 增加 Dockerfile 和环境变量模板。
 - [x] 增加 Mock Demo 模式。
 - [x] 增加演示截图和流程 GIF。
+- [x] 增加模型网关重试、Provider 回退和单轮成本预算。
 - [ ] 建立标准评分 Rubric 和评估基准集。
 - [ ] 增加账号、数据库、对象存储和用户数据隔离。
 - [ ] 增加公测所需的配额、限流、监控和隐私合规能力。
@@ -186,7 +193,7 @@ ruff check .
 pytest -q
 ```
 
-当前测试覆盖状态机、追问判定、问题相似度、复盘标签、Markdown 导出、会话存储、弱项统计和简历编码解析。
+当前测试覆盖状态机、追问判定、问题相似度、复盘标签、Markdown 导出、会话存储、弱项统计、简历编码解析，以及 Streamlit 文字输入全阶段流转。
 
 ## Demo 模式
 

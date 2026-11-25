@@ -58,8 +58,12 @@ interview_loop/
     markdown.py
   platform/
     agent_run.py
+    builtin_tools.py
     model_gateway.py
+    run_repository.py
     tool_registry.py
+  api/
+    main.py
 ```
 
 模块边界原则：

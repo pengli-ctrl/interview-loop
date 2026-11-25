@@ -149,6 +149,7 @@ http://localhost:8501
 - [ADR-004: Modular monolith first](docs/adr/0004-modular-monolith-first.md)
 - [ADR-005: Tenant isolation and tool permissions](docs/adr/0005-tenancy-pii-and-tool-permissions.md)
 - [ADR-006: Trace, evaluation and regression](docs/adr/0006-trace-evaluation-and-regression.md)
+- [ADR-007: FastAPI vertical slice](docs/adr/0007-fastapi-vertical-slice.md)
 
 ## 当前局限
 
@@ -199,6 +200,27 @@ streamlit run app.py
 ```
 
 演示模式会使用固定题目、固定复盘和语音占位数据，不会调用真实模型或语音接口。
+
+## Agent API
+
+启动 API：
+
+```bash
+uvicorn interview_loop.api.main:app --reload
+```
+
+接口：
+
+- `GET /health`
+- `GET /v1/tools`
+- `POST /v1/agent-runs`
+- `GET /v1/agent-runs/{run_id}`
+- `POST /v1/agent-runs/{run_id}/start`
+- `POST /v1/agent-runs/{run_id}/events`
+
+OpenAPI 文档：`http://localhost:8000/docs`。
+
+当前 Repository 为进程内实现，适合架构演示和本地开发；公测需要替换为 PostgreSQL。
 
 ## Docker 运行
 

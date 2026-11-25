@@ -9,3 +9,10 @@ services:
       - ./interview_sessions:/app/interview_sessions
       - ./面试记录:/app/面试记录
     restart: unless-stopped
+
+  interview-loop-api:
+    build: .
+    command: uvicorn interview_loop.api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

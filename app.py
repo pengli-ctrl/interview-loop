@@ -25,10 +25,9 @@ from interview_loop.core.question_engine import (
     questions_too_similar,
 )
 from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
-from interview_loop.export.markdown import save_markdown_record
 from interview_loop.platform.agent_run import AgentRun
+from interview_loop.platform.builtin_tools import build_default_tool_registry
 from interview_loop.platform.model_gateway import ModelGateway
-from interview_loop.platform.tool_registry import ToolRegistry, ToolSpec
 from interview_loop.rag.resume import extract_resume_text
 from interview_loop.rag.retriever import build_rag, query_resume
 from interview_loop.services.asr import audio2text
@@ -44,15 +43,7 @@ from interview_loop.storage.session_store import (
 from interview_loop.storage.stats_store import load_stats, save_stats
 
 MODEL_GATEWAY = ModelGateway()
-TOOL_REGISTRY = ToolRegistry()
-TOOL_REGISTRY.register(
-    ToolSpec(
-        name="record.export",
-        description="Export a complete interview session as Markdown.",
-        handler=save_markdown_record,
-        version="v1",
-    )
-)
+TOOL_REGISTRY = build_default_tool_registry()
 
 
 # ===================== 持久化与初始化 =====================

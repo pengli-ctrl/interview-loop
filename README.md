@@ -4,7 +4,7 @@
 
 ![InterviewLoop demo](demo/interview-loop.gif)
 
-> 当前状态：MVP。核心面试流程、模块化结构、pytest 测试、GitHub Actions 和 Docker 运行方式已经具备；演示素材和 Mock Demo 模式待补。
+> 当前状态：MVP。核心面试流程、模块化结构、pytest 测试、GitHub Actions、Docker 运行方式、Mock Demo 和演示素材已经具备。
 
 ## 项目解决什么问题
 
@@ -154,8 +154,8 @@ http://localhost:8501
 - [x] 拆分 `core`、`services`、`rag`、`storage` 和 `export` 模块。
 - [x] 增加 pytest 纯逻辑测试和 GitHub Actions。
 - [x] 增加 Dockerfile 和环境变量模板。
-- [ ] 增加 Mock Demo 模式。
-- [ ] 增加截图和 30 秒演示 GIF。
+- [x] 增加 Mock Demo 模式。
+- [x] 增加演示截图和流程 GIF。
 - [ ] 建立标准评分 Rubric 和评估基准集。
 - [ ] 增加账号、数据库、对象存储和用户数据隔离。
 - [ ] 增加公测所需的配额、限流、监控和隐私合规能力。

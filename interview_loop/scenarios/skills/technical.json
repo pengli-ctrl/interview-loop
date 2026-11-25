@@ -1,0 +1,411 @@
+{
+  "version": "1.0",
+  "skills": [
+    {
+      "name": "Python",
+      "category": "general",
+      "aliases": [
+        "python"
+      ]
+    },
+    {
+      "name": "Java",
+      "category": "general",
+      "aliases": [
+        "java"
+      ]
+    },
+    {
+      "name": "Go",
+      "category": "general",
+      "aliases": [
+        "go",
+        "golang"
+      ]
+    },
+    {
+      "name": "C++",
+      "category": "general",
+      "aliases": [
+        "c++",
+        "cpp"
+      ]
+    },
+    {
+      "name": "TypeScript",
+      "category": "general",
+      "aliases": [
+        "typescript",
+        "ts"
+      ]
+    },
+    {
+      "name": "JavaScript",
+      "category": "general",
+      "aliases": [
+        "javascript",
+        "js"
+      ]
+    },
+    {
+      "name": "SQL",
+      "category": "general",
+      "aliases": [
+        "sql"
+      ]
+    },
+    {
+      "name": "FastAPI",
+      "category": "general",
+      "aliases": [
+        "fastapi"
+      ]
+    },
+    {
+      "name": "Django",
+      "category": "general",
+      "aliases": [
+        "django"
+      ]
+    },
+    {
+      "name": "Spring Boot",
+      "category": "general",
+      "aliases": [
+        "spring boot",
+        "springboot"
+      ]
+    },
+    {
+      "name": "gRPC",
+      "category": "general",
+      "aliases": [
+        "grpc"
+      ]
+    },
+    {
+      "name": "RPC",
+      "category": "general",
+      "aliases": [
+        "rpc"
+      ]
+    },
+    {
+      "name": "REST",
+      "category": "general",
+      "aliases": [
+        "rest",
+        "restful"
+      ]
+    },
+    {
+      "name": "Kafka",
+      "category": "general",
+      "aliases": [
+        "kafka"
+      ]
+    },
+    {
+      "name": "RabbitMQ",
+      "category": "general",
+      "aliases": [
+        "rabbitmq"
+      ]
+    },
+    {
+      "name": "Redis",
+      "category": "general",
+      "aliases": [
+        "redis"
+      ]
+    },
+    {
+      "name": "MySQL",
+      "category": "general",
+      "aliases": [
+        "mysql"
+      ]
+    },
+    {
+      "name": "PostgreSQL",
+      "category": "general",
+      "aliases": [
+        "postgresql",
+        "postgres"
+      ]
+    },
+    {
+      "name": "Docker",
+      "category": "general",
+      "aliases": [
+        "docker"
+      ]
+    },
+    {
+      "name": "Kubernetes",
+      "category": "general",
+      "aliases": [
+        "kubernetes",
+        "k8s"
+      ]
+    },
+    {
+      "name": "CI/CD",
+      "category": "general",
+      "aliases": [
+        "ci/cd",
+        "cicd",
+        "持续集成"
+      ]
+    },
+    {
+      "name": "RAG",
+      "category": "general",
+      "aliases": [
+        "rag",
+        "检索增强"
+      ]
+    },
+    {
+      "name": "LLM",
+      "category": "general",
+      "aliases": [
+        "llm",
+        "大模型"
+      ]
+    },
+    {
+      "name": "Agent",
+      "category": "general",
+      "aliases": [
+        "agent",
+        "智能体"
+      ]
+    },
+    {
+      "name": "LangChain",
+      "category": "general",
+      "aliases": [
+        "langchain"
+      ]
+    },
+    {
+      "name": "FAISS",
+      "category": "general",
+      "aliases": [
+        "faiss"
+      ]
+    },
+    {
+      "name": "BM25",
+      "category": "general",
+      "aliases": [
+        "bm25"
+      ]
+    },
+    {
+      "name": "OpenTelemetry",
+      "category": "general",
+      "aliases": [
+        "opentelemetry",
+        "otel"
+      ]
+    },
+    {
+      "name": "Prometheus",
+      "category": "general",
+      "aliases": [
+        "prometheus"
+      ]
+    },
+    {
+      "name": "Grafana",
+      "category": "general",
+      "aliases": [
+        "grafana"
+      ]
+    },
+    {
+      "name": "Temporal",
+      "category": "general",
+      "aliases": [
+        "temporal"
+      ]
+    },
+    {
+      "name": "MCP",
+      "category": "general",
+      "aliases": [
+        "mcp"
+      ]
+    },
+    {
+      "name": "微服务",
+      "category": "general",
+      "aliases": [
+        "微服务",
+        "microservice",
+        "microservices"
+      ]
+    },
+    {
+      "name": "分布式系统",
+      "category": "general",
+      "aliases": [
+        "分布式",
+        "distributed system",
+        "distributed systems"
+      ]
+    },
+    {
+      "name": "高并发",
+      "category": "general",
+      "aliases": [
+        "高并发",
+        "high concurrency"
+      ]
+    },
+    {
+      "name": "性能优化",
+      "category": "general",
+      "aliases": [
+        "性能优化",
+        "performance optimization"
+      ]
+    },
+    {
+      "name": "可观测性",
+      "category": "general",
+      "aliases": [
+        "可观测",
+        "observability",
+        "可观测性"
+      ]
+    },
+    {
+      "name": "多租户",
+      "category": "general",
+      "aliases": [
+        "多租户",
+        "multi-tenant",
+        "multitenant"
+      ]
+    },
+    {
+      "name": "RBAC",
+      "category": "general",
+      "aliases": [
+        "rbac",
+        "基于角色的权限"
+      ]
+    },
+    {
+      "name": "审计",
+      "category": "general",
+      "aliases": [
+        "audit",
+        "审计"
+      ]
+    },
+    {
+      "name": "系统设计",
+      "category": "general",
+      "aliases": [
+        "系统设计",
+        "system design"
+      ]
+    },
+    {
+      "name": "消息队列",
+      "category": "general",
+      "aliases": [
+        "消息队列",
+        "message queue",
+        "message queues",
+        "mq"
+      ]
+    },
+    {
+      "name": "AWS",
+      "category": "general",
+      "aliases": [
+        "aws",
+        "amazon web services"
+      ]
+    },
+    {
+      "name": "阿里云",
+      "category": "general",
+      "aliases": [
+        "阿里云",
+        "aliyun"
+      ]
+    },
+    {
+      "name": "火山引擎",
+      "category": "general",
+      "aliases": [
+        "火山引擎",
+        "volcengine"
+      ]
+    },
+    {
+      "name": "Streamlit",
+      "category": "general",
+      "aliases": [
+        "streamlit"
+      ]
+    },
+    {
+      "name": "Pandas",
+      "category": "general",
+      "aliases": [
+        "pandas"
+      ]
+    },
+    {
+      "name": "Airflow",
+      "category": "general",
+      "aliases": [
+        "airflow"
+      ]
+    },
+    {
+      "name": "Spark",
+      "category": "general",
+      "aliases": [
+        "spark"
+      ]
+    },
+    {
+      "name": "Flink",
+      "category": "general",
+      "aliases": [
+        "flink"
+      ]
+    },
+    {
+      "name": "Tableau",
+      "category": "general",
+      "aliases": [
+        "tableau"
+      ]
+    },
+    {
+      "name": "Power BI",
+      "category": "general",
+      "aliases": [
+        "power bi",
+        "powerbi"
+      ]
+    },
+    {
+      "name": "数据分析",
+      "category": "general",
+      "aliases": [
+        "数据分析",
+        "data analysis"
+      ]
+    }
+  ]
+}

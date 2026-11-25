@@ -10,6 +10,11 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from interview_loop.api.security import Principal, get_principal
+from interview_loop.core.job_match import (
+    JobDescriptionError,
+    assess_job_match,
+    load_default_skill_catalog,
+)
 from interview_loop.evaluation.agent_metrics import summarize_agent_runs
 from interview_loop.platform.agent_run import AgentRun, RunStatus
 from interview_loop.platform.builtin_tools import build_default_tool_registry
@@ -52,6 +57,11 @@ class FailRunRequest(BaseModel):
     node: str = "interview.error"
 
 
+class JobMatchRequest(BaseModel):
+    job_description: str
+    resume_text: str = ""
+
+
 class ExecuteToolRequest(BaseModel):
     arguments: dict = Field(default_factory=dict)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
@@ -76,13 +86,14 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(
         title="InterviewLoop Agent API",
-        version="0.12.0",
+        version="0.13.0",
         description="Vertical agent-platform slice for interview run orchestration.",
     )
     db_path = Path(os.getenv("INTERVIEWLOOP_DB_PATH", BASE_DIR / "interview_loop.db"))
     app.state.repository = repository or SQLiteAgentRunRepository(db_path)
     app.state.tool_registry = tool_registry or build_default_tool_registry()
     app.state.scenario_registry = get_default_registry()
+    app.state.skill_catalog = load_default_skill_catalog()
     configured_api_key = (
         api_key if api_key is not None else os.getenv("INTERVIEWLOOP_API_KEY", "")
     )
@@ -140,6 +151,22 @@ def create_app(
         current: Principal = Depends(principal),
     ) -> dict:
         return {"scenarios": request.app.state.scenario_registry.catalog()}
+
+    @app.post("/v1/job-match")
+    def match_job(
+        request: Request,
+        body: JobMatchRequest,
+        current: Principal = Depends(principal),
+    ) -> dict:
+        try:
+            report = assess_job_match(
+                body.job_description,
+                body.resume_text,
+                request.app.state.skill_catalog,
+            )
+        except JobDescriptionError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return report.to_dict()
 
     @app.get("/v1/scenarios/{scenario_id}")
     def get_scenario(

@@ -35,6 +35,7 @@ def build_stage_question_prompt(
     is_followup: bool,
     previous_question: str,
     last_answer: str,
+    job_ctx: str = "",
 ) -> StageQuestionPrompt:
     question_plan = stage.get("question_plan") or stage.get("pool") or [stage["desc"]]
     main_total = max(1, len(question_plan))
@@ -51,6 +52,7 @@ def build_stage_question_prompt(
 当前主问题：第 {main_index + 1}/{main_total} 个：{current_topic}
 本题类型：{question_type}
 追问进度：{followup_index}/{max_followups}
+岗位匹配上下文：{job_ctx or "无"}
 规则：
 1. 主问题必须覆盖当前主问题目标，不要提前跳到后续主问题；
 2. 如果是追问，必须基于候选人的上一轮回答继续深挖，不能重复上一题；
@@ -58,7 +60,8 @@ def build_stage_question_prompt(
 4. 简历上下文：{resume_ctx}
 5. 输出只输出题目，不要多余解释；
 6. 问题和追问必须严格停留在当前阶段【{stage['name']}】（{stage['desc']}），不得提前进入后续面试阶段；
-7. 当前阶段是自我介绍时，只能围绕个人经历、职责范围、技术方向和职业动机，不得追问具体项目架构、技术方案、线上故障或系统设计细节。
+7. 当前阶段是自我介绍时，只能围绕个人经历、职责范围、技术方向和职业动机，不得追问具体项目架构、技术方案、线上故障或系统设计细节；
+8. 除自我介绍阶段外，问题应优先验证岗位匹配上下文中的缺失技能和风险项，但不能偏离当前阶段。
 上一题：{previous_question or "无"}
 候选人回答：{last_answer or "无"}"""
     return StageQuestionPrompt(system_prompt=system_prompt, current_topic=current_topic)

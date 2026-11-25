@@ -38,9 +38,14 @@ def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
     at.button(key="setup_next").click().run()
     assert not at.exception
     assert at.session_state["setup_step"] == 2
+    at.text_area(key="job_description_input").set_value(
+        "负责 Python FastAPI Redis RAG 服务开发，要求具备可观测性和分布式系统经验。"
+    )
     at.button(key="setup_next").click().run()
     assert not at.exception
     assert at.session_state["setup_step"] == 3
+    assert at.session_state["job_match"].match_score == 0
+    assert at.session_state["job_match"].missing_skills
 
     at.get_by_key("consent_checkbox").check().run()
     assert not at.exception
@@ -49,6 +54,8 @@ def test_demo_product_shell_and_complete_interview(monkeypatch, tmp_path):
     assert at.session_state["current_view"] == "interview"
     assert at.session_state["current_question"]
     assert at.session_state["agent_run"].metadata["scenario_id"] == "tech_screen_1"
+    assert at.session_state["agent_run"].metadata["job_match_score"] == 0
+    assert at.session_state["agent_run"].metadata["missing_skills"]
     assert at.session_state["model_budget"].used_tokens > 0
 
     events = at.session_state["agent_run"].events

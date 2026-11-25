@@ -42,6 +42,7 @@ interview_loop/
     packs/
   core/
     flow.py
+    job_match.py
     question_engine.py
     review.py
   services/
@@ -90,6 +91,7 @@ interview_loop/
   config.py
   core/
     flow.py
+    job_match.py
     question_engine.py
     review.py
   services/

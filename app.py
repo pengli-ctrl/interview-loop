@@ -23,6 +23,13 @@ from interview_loop.config import (
     STYLE_LIST,
 )
 from interview_loop.core.flow import FlowAction, decide_next_step
+from interview_loop.core.job_match import (
+    JobDescriptionError,
+    JobMatchReport,
+    assess_job_match,
+    build_job_context,
+    load_default_skill_catalog,
+)
 from interview_loop.core.question_engine import (
     build_repair_prompt,
     build_similarity_fallback,
@@ -53,6 +60,7 @@ from interview_loop.storage.session_store import (
 from interview_loop.storage.stats_store import load_stats, save_stats
 from interview_loop.storage.tenant_paths import tenant_scoped_dir
 
+SKILL_CATALOG = load_default_skill_catalog()
 TENANT_QUOTA_STORE = default_tenant_quota_store()
 MODEL_GATEWAY = ModelGateway(tenant_quota_store=TENANT_QUOTA_STORE)
 TOOL_REGISTRY = build_default_tool_registry()
@@ -88,6 +96,11 @@ def record_run_error(error: Exception | str, node: str) -> None:
     if agent_run is None:
         return
     agent_run.record_event("run.error", node, {"error": str(error)[:500]})
+
+
+def current_job_context() -> str:
+    report = st.session_state.get("job_match")
+    return build_job_context(report) if isinstance(report, JobMatchReport) else ""
 
 
 def record_question_generated(
@@ -168,6 +181,7 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
         duration_seconds = int(max(0, time.time() - st.session_state.start_time))
 
     agent_run = st.session_state.get("agent_run")
+    job_match = st.session_state.get("job_match")
     data = build_session_data(
         session_id=st.session_state.session_id,
         mode=mode,
@@ -179,6 +193,8 @@ def save_session(mode: str, messages: list, feedback: str, tags: list[str]) -> P
         started_at=started_at,
         completed_at=time.strftime("%Y-%m-%d %H:%M:%S"),
         duration_seconds=duration_seconds,
+        job_description=st.session_state.get("job_description", ""),
+        job_match=job_match.to_dict() if isinstance(job_match, JobMatchReport) else None,
         tenant_id=current_tenant_id(),
         user_id=st.session_state.get("user_id", "local"),
         trace_id=agent_run.trace_id if agent_run is not None else None,
@@ -236,6 +252,9 @@ defaults = {
     "nav_version": 0,
     "setup_step": 1,
     "last_tags": [],
+    "resume_text": "",
+    "job_description": "",
+    "job_match": None,
     "tenant_id": "local",
     "user_id": "local",
     "consent_granted": False,
@@ -304,6 +323,10 @@ def reset_interview_state() -> None:
     st.session_state.consent_granted = False
     st.session_state.consent_at = None
     st.session_state.last_tags = []
+    st.session_state.resume_text = ""
+    st.session_state.job_description = ""
+    st.session_state.job_match = None
+    st.session_state.job_description_input = ""
     st.session_state.setup_step = 1
     st.session_state.current_view = "setup"
     st.session_state.nav_version = st.session_state.get("nav_version", 0) + 1
@@ -349,6 +372,7 @@ def get_stage_question(
     is_followup: bool = False,
     previous_question: str = "",
     last_answer: str = "",
+    job_ctx: str = "",
 ) -> str:
     stage = MODE_CONFIG[mode]["stage_list"][stage_idx]
     prompt = build_stage_question_prompt(
@@ -362,6 +386,7 @@ def get_stage_question(
         is_followup=is_followup,
         previous_question=previous_question,
         last_answer=last_answer,
+        job_ctx=job_ctx,
     )
     result = MODEL_GATEWAY.complete(
         "question",
@@ -476,6 +501,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
         st.session_state.resume_retriever,
         f"{st.session_state.current_question}\n{ans_text}",
     )
+    job_ctx = current_job_context()
     if st.session_state.interview_type == "闯关全真面试":
         current_stage_idx = st.session_state.current_stage_idx
         current_stage = mode_cfg["stage_list"][current_stage_idx]
@@ -501,6 +527,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                     True,
                     previous_question=st.session_state.current_question,
                     last_answer=ans_text,
+                    job_ctx=job_ctx,
                 )
             except Exception as exc:
                 record_run_error(exc, "model.question.failed")
@@ -519,6 +546,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                     False,
                     previous_question=st.session_state.current_question,
                     last_answer=ans_text,
+                    job_ctx=job_ctx,
                 )
             except Exception as exc:
                 record_run_error(exc, "model.question.failed")
@@ -539,6 +567,7 @@ def process_answer(ans_text: str, mode_cfg: dict) -> bool:
                     False,
                     previous_question=st.session_state.current_question,
                     last_answer=ans_text,
+                    job_ctx=job_ctx,
                 )
             except Exception as exc:
                 record_run_error(exc, "model.question.failed")
@@ -757,6 +786,16 @@ def render_setup(mode_cfg: dict) -> None:
                 st.rerun()
         elif step == 2:
             st.subheader("2. 补充上下文")
+            jd_value = st.text_area(
+                "目标岗位 JD（可选）",
+                height=180,
+                placeholder="粘贴目标岗位的职责、技能要求和任职资格。",
+                key="job_description_input",
+            )
+            cleaned_jd = jd_value.strip()
+            if cleaned_jd != st.session_state.get("job_description", ""):
+                st.session_state.job_description = cleaned_jd
+                st.session_state.job_match = None
             upload = st.file_uploader(
                 "上传简历（可选）",
                 type=["txt", "md", "pdf"],
@@ -781,6 +820,8 @@ def render_setup(mode_cfg: dict) -> None:
                             st.session_state.resume_retriever = retriever
                             st.session_state.resume_rag_mode = rag_mode
                             st.session_state.resume_chars = len(resume_text)
+                            st.session_state.resume_text = resume_text
+                            st.session_state.job_match = None
                     except Exception as exc:
                         st.session_state.resume_error = str(exc)
             if st.session_state.resume_error:
@@ -793,19 +834,55 @@ def render_setup(mode_cfg: dict) -> None:
                 )
             else:
                 st.caption("不上传简历也可以开始；上传后可获得更贴近经历的问题。")
+
+            saved_match = st.session_state.get("job_match")
+            if isinstance(saved_match, JobMatchReport):
+                st.markdown("#### 岗位匹配摘要")
+                preview_cols = st.columns(3)
+                preview_cols[0].metric("匹配度", f"{saved_match.match_score}/100")
+                preview_cols[1].metric("已匹配", len(saved_match.matched_skills))
+                preview_cols[2].metric("待补强", len(saved_match.missing_skills))
+                if saved_match.missing_skills:
+                    st.caption("缺失技能：" + "、".join(saved_match.missing_skills[:8]))
+
             col_left, col_right = st.columns(2)
             if col_left.button("上一步", key="setup_back"):
                 st.session_state.setup_step = 1
                 st.rerun()
             if col_right.button("下一步：确认并开始", type="primary", key="setup_next"):
-                st.session_state.setup_step = 3
-                st.rerun()
+                jd_text = st.session_state.get("job_description", "").strip()
+                if jd_text:
+                    try:
+                        report = assess_job_match(
+                            jd_text,
+                            st.session_state.get("resume_text", ""),
+                            SKILL_CATALOG,
+                        )
+                    except JobDescriptionError as exc:
+                        st.error(str(exc))
+                    else:
+                        st.session_state.job_match = report
+                        st.session_state.setup_step = 3
+                        st.rerun()
+                else:
+                    st.session_state.job_match = None
+                    st.session_state.setup_step = 3
+                    st.rerun()
         else:
             st.subheader("3. 确认并开始")
             summary_cols = st.columns(3)
             summary_cols[0].metric("轮次", st.session_state.mode)
             summary_cols[1].metric("模式", st.session_state.interview_type)
             summary_cols[2].metric("风格", st.session_state.style)
+            current_match = st.session_state.get("job_match")
+            if isinstance(current_match, JobMatchReport):
+                st.markdown("#### 岗位匹配")
+                match_cols = st.columns(3)
+                match_cols[0].metric("匹配度", f"{current_match.match_score}/100")
+                match_cols[1].metric("已匹配技能", len(current_match.matched_skills))
+                match_cols[2].metric("缺失技能", len(current_match.missing_skills))
+                if current_match.missing_skills:
+                    st.caption("面试将重点验证：" + "、".join(current_match.missing_skills[:5]))
             if st.session_state.get("resume_name"):
                 st.caption(f"简历上下文：{st.session_state.resume_name}")
             else:
@@ -862,6 +939,16 @@ def render_setup(mode_cfg: dict) -> None:
                             ).id,
                             "interview_type": st.session_state.interview_type,
                             "style": st.session_state.style,
+                            "job_match_score": (
+                                st.session_state.job_match.match_score
+                                if isinstance(st.session_state.get("job_match"), JobMatchReport)
+                                else None
+                            ),
+                            "missing_skills": (
+                                list(st.session_state.job_match.missing_skills)
+                                if isinstance(st.session_state.get("job_match"), JobMatchReport)
+                                else []
+                            ),
                         },
                     )
                     agent_run.start("interview.start")
@@ -878,6 +965,7 @@ def render_setup(mode_cfg: dict) -> None:
                                     st.session_state.stage_main_index,
                                     st.session_state.stage_followup_count,
                                     st.session_state.stage_followup_count > 0,
+                                    job_ctx=current_job_context(),
                                 )
                             else:
                                 question = get_weak_question(st.session_state.mode)
@@ -1033,6 +1121,21 @@ def render_report() -> None:
         f"{(duration_seconds or 0) // 60} 分钟",
     )
 
+    job_match = st.session_state.get("job_match")
+    if isinstance(job_match, JobMatchReport):
+        with st.container(border=True):
+            st.markdown("### 岗位匹配")
+            match_cols = st.columns(3)
+            match_cols[0].metric("匹配度", f"{job_match.match_score}/100")
+            match_cols[1].metric("已匹配技能", len(job_match.matched_skills))
+            match_cols[2].metric("缺失技能", len(job_match.missing_skills))
+            if job_match.matched_skills:
+                st.caption("已匹配：" + "、".join(job_match.matched_skills))
+            if job_match.missing_skills:
+                st.caption("需要补强：" + "、".join(job_match.missing_skills))
+            if job_match.suggested_focus:
+                st.caption("建议重点：" + "；".join(job_match.suggested_focus))
+
     if tags:
         st.caption("本轮薄弱标签")
         st.write("  ".join(tags))
@@ -1108,6 +1211,11 @@ def render_growth(mode_cfg: dict) -> None:
             st.session_state.messages = saved.get("messages", [])
             st.session_state.feedback = saved.get("feedback")
             st.session_state.last_tags = saved.get("tags", [])
+            st.session_state.job_description = saved.get("job_description", "")
+            restored_match = saved.get("job_match") or {}
+            st.session_state.job_match = (
+                JobMatchReport.from_dict(restored_match) if restored_match else None
+            )
             st.session_state.mode = saved_mode
             st.session_state.interview_type = saved.get(
                 "interview_type", "闯关全真面试"

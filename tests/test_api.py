@@ -326,3 +326,25 @@ def test_scenario_catalog_and_detail():
 
     missing = client.get("/v1/scenarios/not-found", headers=headers)
     assert missing.status_code == 404
+
+
+def test_job_match_endpoint():
+    headers = {"X-Tenant-Id": "tenant-job-match"}
+    payload = {
+        "job_description": "负责 Python FastAPI Redis RAG 服务开发，要求具备可观测性和分布式系统经验。",
+        "resume_text": "使用 Python FastAPI 构建 RAG 服务，接入 Redis 和 OpenTelemetry，具备可观测性和分布式系统经验，延迟下降 30%。",
+    }
+    response = client.post("/v1/job-match", headers=headers, json=payload)
+    assert response.status_code == 200
+    report = response.json()
+    assert report["match_score"] >= 70
+    assert "Python" in report["matched_skills"]
+    assert "RAG" in report["matched_skills"]
+
+    invalid = client.post(
+        "/v1/job-match",
+        headers=headers,
+        json={"job_description": "招 Python 工程师", "resume_text": ""},
+    )
+    assert invalid.status_code == 422
+    assert "JD" in invalid.json()["detail"]

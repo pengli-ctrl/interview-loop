@@ -1,0 +1,29 @@
+# Secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+!.streamlit/secrets.toml.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Runtime data
+interview_sessions/
+面试记录/
+weak_stats_mode.json
+*.tmp
+*.wav
+*.mp3
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

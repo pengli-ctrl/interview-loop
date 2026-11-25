@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-import openai
 import pandas as pd
 import requests
 import streamlit as st
@@ -19,11 +18,10 @@ st.set_page_config(page_title="全真大厂面试模拟器", layout="wide")
 from interview_loop.core.flow import FlowAction, decide_next_step
 from interview_loop.core.question_engine import questions_too_similar
 from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
+from interview_loop.services.common import parse_api_response, require_config
+from interview_loop.services.llm import llm_call
 from interview_loop.config import (
     GLOBAL_STATS_PATH,
-    LLM_API_KEY,
-    LLM_BASE_URL,
-    LLM_MODEL,
     MAX_RESUME_BYTES,
     MODE_CONFIG,
     MODE_LIST,
@@ -405,51 +403,6 @@ def rag_query(query: str) -> str:
 
 
 # ===================== 模型与语音服务 =====================
-def require_config(*values: str) -> None:
-    if any(not value for value in values):
-        raise RuntimeError("缺少必要配置，请检查 .streamlit/secrets.toml 或环境变量")
-
-
-def parse_api_response(response: requests.Response, service: str) -> dict:
-    try:
-        result = response.json()
-    except ValueError as exc:
-        detail = response.text[:300].strip() or "响应不是 JSON"
-        raise RuntimeError(f"{service} HTTP {response.status_code}：{detail}") from exc
-
-    if not response.ok:
-        header = result.get("header", {}) if isinstance(result, dict) else {}
-        message = (
-            result.get("message")
-            or header.get("message")
-            or result.get("error")
-            or response.text[:300]
-        )
-        raise RuntimeError(f"{service} HTTP {response.status_code}：{message}")
-    return result
-
-
-def llm_call(system_prompt: str, user_msg: str) -> str:
-    require_config(LLM_API_KEY)
-    try:
-        client = openai.OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=90)
-        resp = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_msg},
-            ],
-            temperature=0.3,
-        )
-    except Exception as exc:
-        raise RuntimeError(f"大模型调用失败：{exc}") from exc
-
-    content = (resp.choices[0].message.content or "").strip()
-    if not content:
-        raise RuntimeError("大模型返回了空内容")
-    return content
-
-
 def volc_auth_headers(service: str) -> dict[str, str]:
     """同时兼容新版 API Key 单头和 AppID + AccessToken 双头。"""
     if VOLC_API_KEY:

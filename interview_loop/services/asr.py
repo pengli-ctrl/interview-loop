@@ -3,12 +3,15 @@ from uuid import uuid4
 
 import requests
 
-from interview_loop.config import VOLC_ASR_RESOURCE_ID
+from interview_loop.config import DEMO_MODE, VOLC_ASR_RESOURCE_ID
 from interview_loop.services.common import parse_api_response
+from interview_loop.services.demo import DEMO_ANSWER
 from interview_loop.services.speech_common import volc_auth_headers
 
 
 def audio2text(audio_bytes: bytes) -> str:
+    if DEMO_MODE:
+        return DEMO_ANSWER
     if not audio_bytes:
         raise ValueError("录音内容为空")
 

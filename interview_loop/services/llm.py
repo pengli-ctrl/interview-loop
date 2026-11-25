@@ -1,10 +1,13 @@
 import openai
 
-from interview_loop.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from interview_loop.config import DEMO_MODE, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from interview_loop.services.common import require_config
+from interview_loop.services.demo import build_demo_llm_response
 
 
 def llm_call(system_prompt: str, user_msg: str) -> str:
+    if DEMO_MODE:
+        return build_demo_llm_response(system_prompt, user_msg)
     require_config(LLM_API_KEY)
     try:
         client = openai.OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=90)

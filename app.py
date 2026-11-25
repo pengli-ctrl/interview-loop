@@ -9,6 +9,7 @@ import streamlit as st
 st.set_page_config(page_title="全真大厂面试模拟器", layout="wide")
 
 from interview_loop.config import (
+    DEMO_MODE,
     GLOBAL_STATS_PATH,
     MODE_CONFIG,
     MODE_LIST,
@@ -352,6 +353,9 @@ def render_interview_timer() -> None:
 
 # ===================== UI =====================
 st.title("🎙️ 全真大厂面试模拟器｜闯关 + 专项双模式")
+
+if DEMO_MODE:
+    st.info("当前为演示模式：不调用 DeepSeek、ASR 或 TTS，可完整体验面试状态机和复盘流程。")
 
 col0_1, col0_2, col0_3 = st.columns([1, 1, 1])
 with col0_1:

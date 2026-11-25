@@ -29,6 +29,7 @@ GLOBAL_STATS_PATH = BASE_DIR / "weak_stats_mode.json"
 RECORD_DIR = BASE_DIR / "面试记录"
 RECORD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_RESUME_BYTES = 10 * 1024 * 1024
+DEMO_MODE = _get_secret("demo_mode", "false").lower() in {"1", "true", "yes", "on"}
 
 # 面试轮次配置
 MODE_CONFIG = {

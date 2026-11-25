@@ -172,6 +172,23 @@ pytest -q
 
 当前测试覆盖状态机、追问判定、问题相似度、复盘标签、Markdown 导出、会话存储、弱项统计和简历编码解析。
 
+## Demo 模式
+
+无需任何 API Key 即可运行完整面试流程：
+
+```bash
+demo_mode=true streamlit run app.py
+```
+
+Windows PowerShell:
+
+```powershell
+$env:demo_mode="true"
+streamlit run app.py
+```
+
+演示模式会使用固定题目、固定复盘和语音占位数据，不会调用真实模型或语音接口。
+
 ## Docker 运行
 
 先准备环境变量：

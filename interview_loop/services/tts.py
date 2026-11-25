@@ -4,11 +4,13 @@ from uuid import uuid4
 
 import requests
 
-from interview_loop.config import VOICE_TYPE, VOLC_TTS_RESOURCE_ID
+from interview_loop.config import DEMO_MODE, VOICE_TYPE, VOLC_TTS_RESOURCE_ID
 from interview_loop.services.speech_common import volc_auth_headers
 
 
 def text2audio(text: str) -> bytes:
+    if DEMO_MODE:
+        return b""
     url = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
     headers = {
         **volc_auth_headers("tts"),

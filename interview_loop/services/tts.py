@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import requests
 
-from interview_loop.config import VOLC_TTS_RESOURCE_ID, VOICE_TYPE
+from interview_loop.config import VOICE_TYPE, VOLC_TTS_RESOURCE_ID
 from interview_loop.services.speech_common import volc_auth_headers
 
 

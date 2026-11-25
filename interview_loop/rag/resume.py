@@ -1,15 +1,7 @@
 import io
 
 from interview_loop.config import MAX_RESUME_BYTES
-
-
-def _decode_resume_text(data: bytes) -> str:
-    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
-        try:
-            return data.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    raise ValueError("无法识别文本编码，请将简历另存为 UTF-8 后重试")
+from interview_loop.rag.text import decode_resume_text
 
 
 def extract_resume_text(upload) -> str:
@@ -41,4 +33,4 @@ def extract_resume_text(upload) -> str:
             raise ValueError(f"PDF 解析失败：{exc}") from exc
         return "\n".join(page for page in pages if page)
 
-    return _decode_resume_text(data)
+    return decode_resume_text(data)

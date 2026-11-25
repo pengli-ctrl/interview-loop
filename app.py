@@ -6,31 +6,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-
-
 st.set_page_config(page_title="全真大厂面试模拟器", layout="wide")
 
-from interview_loop.core.flow import FlowAction, decide_next_step
-from interview_loop.core.question_engine import (
-    build_repair_prompt,
-    build_similarity_fallback,
-    build_stage_question_prompt,
-    questions_too_similar,
-)
-from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
-from interview_loop.services.asr import audio2text
-from interview_loop.services.llm import llm_call
-from interview_loop.services.tts import text2audio
-from interview_loop.rag.resume import extract_resume_text
-from interview_loop.rag.retriever import build_rag, query_resume
-from interview_loop.export.markdown import save_markdown_record
-from interview_loop.storage.session_store import (
-    build_session_data,
-    list_session_files as _list_session_files,
-    new_session_id,
-    save_session_json,
-)
-from interview_loop.storage.stats_store import load_stats, save_stats
 from interview_loop.config import (
     GLOBAL_STATS_PATH,
     MODE_CONFIG,
@@ -39,6 +16,29 @@ from interview_loop.config import (
     SAVE_DIR,
     STYLE_LIST,
 )
+from interview_loop.core.flow import FlowAction, decide_next_step
+from interview_loop.core.question_engine import (
+    build_repair_prompt,
+    build_similarity_fallback,
+    build_stage_question_prompt,
+    questions_too_similar,
+)
+from interview_loop.core.review import build_review_prompt, build_tag_prompt, parse_tags
+from interview_loop.export.markdown import save_markdown_record
+from interview_loop.rag.resume import extract_resume_text
+from interview_loop.rag.retriever import build_rag, query_resume
+from interview_loop.services.asr import audio2text
+from interview_loop.services.llm import llm_call
+from interview_loop.services.tts import text2audio
+from interview_loop.storage.session_store import (
+    build_session_data,
+    new_session_id,
+    save_session_json,
+)
+from interview_loop.storage.session_store import (
+    list_session_files as _list_session_files,
+)
+from interview_loop.storage.stats_store import load_stats, save_stats
 
 
 # ===================== 持久化与初始化 =====================

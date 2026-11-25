@@ -2,6 +2,8 @@
 
 面向技术岗位的多轮自适应 AI 面试训练平台。它将简历、面试轮次、阶段状态机、动态追问、语音/文字作答、结构化复盘和完整记录导出连接成一个可重复训练、可回顾的闭环。
 
+![InterviewLoop demo](demo/interview-loop.gif)
+
 > 当前状态：MVP。核心面试流程、模块化结构、pytest 测试、GitHub Actions 和 Docker 运行方式已经具备；演示素材和 Mock Demo 模式待补。
 
 ## 项目解决什么问题

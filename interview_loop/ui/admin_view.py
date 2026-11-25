@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from interview_loop.admin.control_plane import (
+    format_local_time,
     format_quality_thresholds,
     format_quota_snapshot,
     format_rag_thresholds,
@@ -104,7 +105,7 @@ def render_admin_view(
                                 "事件": event.event_type,
                                 "节点": event.node,
                                 "耗时ms": event.duration_ms,
-                                "时间": event.created_at,
+                                "时间": format_local_time(event.created_at),
                                 "Payload": event.payload,
                             }
                             for event in selected_run.events

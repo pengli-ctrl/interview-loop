@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from interview_loop.evaluation.quality import evaluate_quality
@@ -70,7 +71,7 @@ def run_rows(runs) -> list[dict]:
             "状态": run.status.value,
             "当前节点": run.current_node,
             "事件数": len(run.events),
-            "更新时间": run.updated_at,
+            "更新时间": format_local_time(run.updated_at),
         }
         for run in runs
     ]
@@ -116,3 +117,16 @@ def format_quota_snapshot(snapshot: dict) -> str:
         f"¥{float(snapshot.get('used_cost', 0)):.4f} / "
         f"¥{float(snapshot.get('max_cost', 0)):.2f}"
     )
+
+
+def format_local_time(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "-"
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")

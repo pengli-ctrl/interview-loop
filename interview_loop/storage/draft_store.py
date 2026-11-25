@@ -58,7 +58,12 @@ def cleanup_expired_drafts(save_dir: Path) -> int:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             expires_at = str(data.get("draft_expires_at") or "")
-            expired = bool(expires_at) and datetime.fromisoformat(expires_at) <= now
+            if expires_at:
+                expired = datetime.fromisoformat(expires_at) <= now
+            else:
+                ttl_days = draft_ttl_days(str(data.get("retention_policy", "standard")))
+                modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+                expired = modified_at + timedelta(days=ttl_days) <= now
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             expired = True
         if expired:

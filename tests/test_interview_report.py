@@ -54,6 +54,8 @@ def test_strong_answer_scores_higher_than_vague_answer():
     ]
     vague = build_interview_report(vague_messages, _rubric())
     assert strong.overall_score > vague.overall_score
+    assert "暂无明显优势" in vague.strengths[0]
+    assert not any("可复用的方法" in item for item in vague.strengths)
 
 
 def test_report_roundtrip():

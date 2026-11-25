@@ -4,6 +4,7 @@ from streamlit.testing.v1 import AppTest
 
 import interview_loop.config as config
 from interview_loop.admin.control_plane import (
+    format_local_time,
     format_quality_thresholds,
     format_quota_snapshot,
     format_rag_thresholds,
@@ -91,3 +92,7 @@ def test_admin_formatting_helpers_do_not_render_python_dicts():
     assert "10 / 100 Token" in quota
     assert "\u00a50.1200 / \u00a55.00" in quota
     assert "{" not in rag + quality + quota
+
+
+def test_admin_timestamp_is_rendered_in_china_time():
+    assert format_local_time("2026-11-25T12:29:28.923294+00:00") == "2026-11-25 20:29:28"

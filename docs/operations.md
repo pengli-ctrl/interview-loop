@@ -189,7 +189,9 @@ python scripts/evaluate_rag.py
 python scripts/evaluate_quality.py
 ```
 
-候选人 UI 生成的 AgentRun 会在复盘时写入同一 SQLite，控制台可直接查看最近 Run 和 Trace。
+候选人 UI 和恢复草稿产生的 AgentRun 都会写入同一 SQLite，控制台可直接查看最近 Run 和 Trace。
+
+控制台时间统一按北京时间展示。
 
 CI 还会安装 Noto CJK 字体并运行 scripts/capture_demo.py，对完整候选人流程和管理页做 Playwright 截图与断言。
 

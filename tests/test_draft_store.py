@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from datetime import datetime, timedelta, timezone
 
 from interview_loop.storage.draft_store import (
@@ -66,3 +68,13 @@ def test_draft_requires_safe_session_id(tmp_path):
         pass
     else:
         raise AssertionError("unsafe session id should be rejected")
+
+
+def test_legacy_draft_without_expiry_uses_file_mtime(tmp_path):
+    legacy = tmp_path / "drafts" / "legacy.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(json.dumps({"session_id": "legacy", "messages": []}), encoding="utf-8")
+    old_timestamp = time.time() - 8 * 24 * 60 * 60
+    os.utime(legacy, (old_timestamp, old_timestamp))
+    assert cleanup_expired_drafts(tmp_path) == 1
+    assert not legacy.exists()

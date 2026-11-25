@@ -219,10 +219,19 @@ def build_interview_report(
     total_weight = sum(item.weight for item in dimensions) or 1.0
     overall = round(sum(item.score * item.weight for item in dimensions) / total_weight, 1)
     ranked = sorted(dimensions, key=lambda item: item.score, reverse=True)
-    strengths = tuple(
-        f"{item.label}：{item.score}/10，回答体现了可复用的方法和具体案例。"
-        for item in ranked[:2]
-    )
+    if ranked and ranked[0].score >= 6.5:
+        strengths = tuple(
+            f"{item.label}：{item.score}/10，该维度参考分相对较高。"
+            for item in ranked[:2]
+            if item.score >= 6.5
+        )
+    elif ranked:
+        strengths = (
+            f"本轮暂无明显优势；相对较好的是 {ranked[0].label}"
+            f"（{ranked[0].score}/10）。",
+        )
+    else:
+        strengths = ("本轮暂无明显优势。",)
     weak = sorted([item for item in dimensions if item.score < 6.5], key=lambda item: item.score)
     risks = tuple(
         f"{item.label}偏弱：{item.score}/10，需要补充事实、取舍和结果。"
@@ -249,6 +258,10 @@ def build_interview_report(
 
     strongest = ranked[0].label if ranked else "暂无"
     weakest = sorted(dimensions, key=lambda item: item.score)[0].label if dimensions else "暂无"
+    if ranked and ranked[0].score >= 6.5:
+        strength_summary = f"优势维度是{strongest}"
+    else:
+        strength_summary = f"本轮暂无明显优势，相对较好的是{strongest}"
     return InterviewReport(
         overall_score=overall,
         dimensions=tuple(dimensions),
@@ -256,7 +269,7 @@ def build_interview_report(
         risks=risks,
         action_plan=tuple(actions),
         evidence=tuple(evidence),
-        summary=f"表达结构参考分为 {overall}/10（基于回答长度、结构和关键词的启发式规则，仅用于训练反馈）。优势维度是{strongest}，优先改进{weakest}。共记录 {len(turns)} 轮回答。",
+        summary=f"表达结构参考分为 {overall}/10（基于回答长度、结构和关键词的启发式规则，仅用于训练反馈）。{strength_summary}，优先改进{weakest}。共记录 {len(turns)} 轮回答。",
     )
 
 

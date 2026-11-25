@@ -348,7 +348,7 @@ def capture_candidate_flow(page: Page, frames: list[Path]) -> None:
         page,
         SESSION_TWO_ANSWERS,
         capture_setup=False,
-        upload_resume=False,
+        upload_resume=True,
         frames=frames,
     )
     capture(page, "report", frames)

@@ -271,6 +271,14 @@ def test_unfinished_interview_draft_can_be_restored(monkeypatch, tmp_path):
     assert len(restored["messages"]) == 2
     assert restored["current_question"] == "当前问题"
 
+    refreshed.button(key="restore_interview_draft").click().run()
+    assert not refreshed.exception
+    resumed_run = refreshed.session_state["agent_run"]
+    assert resumed_run.metadata["resumed_from_draft"] is True
+    event_types = [event.event_type for event in resumed_run.events]
+    assert "draft.restored" in event_types
+    assert resumed_run.status.value == "running"
+
 
 def test_new_interview_reset_clears_stale_resume_state(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "DEMO_MODE", True)
@@ -371,3 +379,49 @@ def test_legacy_weak_stats_migrates_to_tenant_storage(monkeypatch, tmp_path):
     migrated = save_dir / "weak_stats.json"
     assert migrated.exists()
     assert json.loads(migrated.read_text(encoding="utf-8"))["技术一面"]["RAG"] == 3
+
+
+def test_dashboard_opens_latest_report_and_resets_setup_step(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DEMO_MODE", True)
+    save_dir = tmp_path / "sessions"
+    save_dir.mkdir()
+    monkeypatch.setattr(config, "SAVE_DIR", save_dir)
+    monkeypatch.setattr(config, "RECORD_DIR", tmp_path / "records")
+    monkeypatch.setattr(config, "GLOBAL_STATS_PATH", tmp_path / "weak_stats.json")
+    saved = {
+        "session_id": "latest_report",
+        "time": "2026-11-25 10:00:00",
+        "started_at": "2026-11-25_10-00-00",
+        "completed_at": "2026-11-25 10:20:00",
+        "duration_seconds": 1200,
+        "mode": "技术一面",
+        "interview_type": "闯关全真面试",
+        "style": "温和",
+        "messages": [
+            {"role": "interviewer", "content": "问题"},
+            {"role": "candidate", "content": "回答"},
+        ],
+        "feedback": "最近一次复盘内容",
+        "tags": ["RAG"],
+        "structured_report": {"overall_score": 6.8, "dimensions": []},
+    }
+    (save_dir / "latest_report.json").write_text(
+        json.dumps(saved, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    at = AppTest.from_file(str(app_path), default_timeout=30).run()
+    at.button(key="dashboard_card_report").click().run()
+    assert not at.exception
+    assert at.session_state["current_view"] == "report"
+    assert at.session_state["feedback"] == "最近一次复盘内容"
+    assert not any("还没有可查看的复盘" in item.value for item in at.info)
+
+    navigation = at.get_by_key(f"main_navigation_{at.session_state['nav_version']}")
+    navigation.set_value("工作台").run()
+    at.session_state["setup_step"] = 3
+    at.run()
+    at.button(key="dashboard_start").click().run()
+    assert not at.exception
+    assert at.session_state["current_view"] == "setup"
+    assert at.session_state["setup_step"] == 1

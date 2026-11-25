@@ -41,7 +41,7 @@ Streamlit UI ───────────────┐
 | 目录 | 职责 | 关键约束 |
 |---|---|---|
 | `app.py` | Streamlit 入口、会话状态和用例编排 | 页面展示委托给 `interview_loop/ui/` |
-| `interview_loop/ui/` | 通用组件、工作台、复盘页和管理页展示 | 不承载领域规则或外部 Provider 调用 |
+| `interview_loop/ui/` | 通用组件及 dashboard / setup / interview / report / growth / admin 页面 | 不承载领域规则或外部 Provider 调用 |
 | `interview_loop/core/` | 状态机、追问判定、问题生成、复盘、岗位匹配 | 纯逻辑优先，可 pytest |
 | `interview_loop/scenarios/` | 场景模型、JSON 配置包、校验和注册表 | UI 与 API 共用同一配置 |
 | `interview_loop/services/` | LLM、ASR、TTS Provider 适配 | 不直接操作页面或数据库 |

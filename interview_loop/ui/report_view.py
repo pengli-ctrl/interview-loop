@@ -57,20 +57,23 @@ def render_report_view(
             render_score_card(structured_report.overall_score)
             st.caption("启发式参考分，仅用于训练反馈，不等同于语义评分或录用结论。")
         with chart_col:
-            chart_data = pd.DataFrame(
-                [
-                    {"维度": item.label, "得分": item.score}
-                    for item in structured_report.dimensions
-                ]
-            )
-            st.caption("维度参考分")
-            st.bar_chart(
-                chart_data,
-                x="维度",
-                y="得分",
-                horizontal=True,
-                alt="本次面试各能力维度参考分",
-            )
+            if structured_report.dimensions:
+                chart_data = pd.DataFrame(
+                    [
+                        {"维度": item.label, "得分": item.score}
+                        for item in structured_report.dimensions
+                    ]
+                )
+                st.caption("维度参考分")
+                st.bar_chart(
+                    chart_data,
+                    x="维度",
+                    y="得分",
+                    horizontal=True,
+                    alt="本次面试各能力维度参考分",
+                )
+            else:
+                st.caption("该记录没有维度明细。")
 
         render_chips(
             [

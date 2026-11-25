@@ -6,7 +6,7 @@
 
 ![InterviewLoop 端到端演示](demo/interview-loop.gif)
 
-> 当前版本：`v0.18.0`。项目可作为本地面试训练工具、Agent 工程作品和受控演示使用；公测生产环境仍需补齐账号、数据库、安全和运营能力。
+> 当前版本：`v0.19.0`。项目可作为本地面试训练工具、Agent 工程作品和受控演示使用；公测生产环境仍需补齐账号、数据库、安全和运营能力。
 
 ## 解决什么问题
 
@@ -36,7 +36,9 @@ InterviewLoop 把 JD、简历、阶段状态机、动态追问、语音/文字�
 - **控制面联通**：候选人 UI 产生的 AgentRun 会写入 SQLite，控制台可直接查看最近运行与 Trace。
 - **工具运行时**：权限、超时、幂等、参数冲突、Schema 校验和 AgentRun 审计。
 - **可观测与评估**：P50/P95、失败/重试、重复问题率、阶段遵守率、Trace Replay 和质量校准。
-- **受控平台控制台**：只读展示场景、模型、工具、额度、运行轨迹和评估指标。
+- **受控平台控制台**：只读展示场景、模型、工具、额度、运行轨迹和评估指标；UI 与恢复流程产生的 Run 都会入库。
+- **最近复盘直达**：工作台可从历史文件加载最近一次完整报告，不再打开空页面。
+- **页面模块化**：dashboard、setup、interview、report、growth、admin 均已拆入 interview_loop/ui/。
 
 ## 产品截图
 
@@ -165,7 +167,7 @@ python scripts/evaluate_rag.py
 python scripts/evaluate_quality.py
 ```
 
-当前包含 139+ 个 pytest 用例，覆盖状态机、追问、场景配置、JD 匹配、结构化报告、Markdown 导出、存储、模型网关、工具运行时、API、隐私、Trace 和 Streamlit 全流程。
+当前包含 142+ 个 pytest 用例，覆盖状态机、追问、场景配置、JD 匹配、结构化报告、Markdown 导出、存储、模型网关、工具运行时、API、隐私、Trace 和 Streamlit 全流程。
 
 检索黄金集、Rubric、评分质量门禁和 Agent 指标说明见 [评估体系](docs/evaluation.md)。
 

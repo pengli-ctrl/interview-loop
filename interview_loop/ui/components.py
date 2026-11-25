@@ -52,8 +52,8 @@ def inject_ui_css() -> None:
         [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
           background: #e8f0ff; color: #1d4ed8; font-weight: 650;
         }
-        [data-testid="stSidebar"] [role="radiogroup"] label > div:first-child {
-          display: none;
+        [data-testid="stSidebar"] [role="radiogroup"] label[data-testid="stRadioOption"] > div > div:first-child {
+          display: none !important;
         }
         </style>
         """,

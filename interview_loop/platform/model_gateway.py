@@ -1,9 +1,9 @@
+import os
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Callable
 
-from interview_loop.config import LLM_MODEL
-from interview_loop.services.llm import llm_call
+DEFAULT_MODEL = os.getenv("deepseek_model", "deepseek-chat")
 
 
 @dataclass(frozen=True)
@@ -30,16 +30,20 @@ def estimate_tokens(text: str) -> int:
 
 
 class ModelGateway:
-    def __init__(self, completer: Callable[..., str] = llm_call) -> None:
+    def __init__(self, completer: Callable[..., str] | None = None) -> None:
+        if completer is None:
+            from interview_loop.services.llm import llm_call
+
+            completer = llm_call
         self._completer = completer
         self._profiles = {
-            "question": ModelProfile("question", LLM_MODEL, "question-v1"),
-            "tagging": ModelProfile("tagging", LLM_MODEL, "tagging-v1"),
-            "review": ModelProfile("review", LLM_MODEL, "review-v1"),
+            "question": ModelProfile("question", DEFAULT_MODEL, "question-v1"),
+            "tagging": ModelProfile("tagging", DEFAULT_MODEL, "tagging-v1"),
+            "review": ModelProfile("review", DEFAULT_MODEL, "review-v1"),
         }
 
     def complete(self, task: str, system_prompt: str, user_msg: str) -> ModelResult:
-        profile = self._profiles.get(task, ModelProfile(task, LLM_MODEL, f"{task}-v1"))
+        profile = self._profiles.get(task, ModelProfile(task, DEFAULT_MODEL, f"{task}-v1"))
         started = perf_counter()
         content = self._completer(system_prompt, user_msg)
         latency_ms = int((perf_counter() - started) * 1000)
